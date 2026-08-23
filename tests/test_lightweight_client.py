@@ -14,7 +14,7 @@ import httpx
 import pytest
 
 from monitoring.config import load_settings
-from monitoring.lightweight_client import LightweightTargetClient, _load_cookies
+from monitoring.lightweight_client import LightweightTargetClient, load_cookies
 from monitoring.models import ExtractionError, TargetUnavailableError
 
 
@@ -31,28 +31,28 @@ def _write_storage_state(path, cookies):
 # --- cookie loading ---
 
 def test_load_cookies_from_missing_file_returns_empty(tmp_path):
-    cookies = _load_cookies(tmp_path / "does_not_exist.json")
+    cookies = load_cookies(tmp_path / "does_not_exist.json")
     assert len(cookies) == 0
 
 
 def test_load_cookies_from_valid_storage_state(tmp_path):
     path = tmp_path / "session.json"
     _write_storage_state(path, [{"name": "PHPSESSID", "value": "abc123", "domain": "www.jwintell.com", "path": "/"}])
-    cookies = _load_cookies(path)
+    cookies = load_cookies(path)
     assert cookies.get("PHPSESSID", domain="www.jwintell.com") == "abc123"
 
 
 def test_load_cookies_from_corrupt_file_returns_empty(tmp_path):
     path = tmp_path / "session.json"
     path.write_text("{ not valid json", encoding="utf-8")
-    cookies = _load_cookies(path)
+    cookies = load_cookies(path)
     assert len(cookies) == 0
 
 
 def test_load_cookies_skips_malformed_entries(tmp_path):
     path = tmp_path / "session.json"
     _write_storage_state(path, [{"name": "onlyname"}])  # missing value/domain
-    cookies = _load_cookies(path)  # must not raise
+    cookies = load_cookies(path)  # must not raise
     assert len(cookies) == 0
 
 

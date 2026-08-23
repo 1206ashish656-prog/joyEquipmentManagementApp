@@ -151,6 +151,47 @@ audit trails:
 GET /NgsEmfuaOv.php/device/device_fault_log/index?sort=id&order=desc&dialog=1&device_id=<id>
 ```
 
+## Order Management → Order Information (confirmed 2026-08-24)
+
+Discovered the same way Device Information was: a FastAdmin bootstrap-table
+list, structurally identical to the device list. Outer wrapper
+`/NgsEmfuaOv.php/order/order?ref=addtabs` contains an
+`<iframe src="...&addtabs=1">`; the real data comes from:
+
+```
+GET /NgsEmfuaOv.php/order/order/index
+    ?addtabs=1&sort=id&order=desc&offset=<N>&limit=<N>
+    &filter={"createtime":"<start-date> - <end-date>"}
+    &op={"createtime":"RANGE"}
+Header: X-Requested-With: XMLHttpRequest
+```
+
+32,049 total orders exist on this account as of discovery. Confirmed row
+fields relevant to the daily-summary feature (`orders/` package):
+`id`, `order_code`, `device_id`, `device.name` (equipment name — the
+summary's grouping key), `order_money`, `orange_num`, `orange_weight`
+(both per-order, not the device-level stock field of the same name seen
+on the equipment endpoint — context disambiguates them), `pay_state_text`
+/ `delivery_state_text` / `order_state_text`, `pay_type_text`,
+`goods_name`, `createtime` (unix timestamp).
+
+**CONFIRMED — the `createtime` RANGE filter's day boundaries are UTC+8
+(China Standard Time), not UTC, not IST, not the querying machine's local
+time.** Verified live across three consecutive days: for each day
+requested, the earliest and latest returned order's `createtime`,
+converted to UTC+8, landed within minutes of that day's 00:00:00 and
+23:59:59 respectively — consistently, not coincidentally. Any other
+timezone assumption would have silently misassigned orders to the wrong
+calendar day. `orders/mapping.py`'s `TARGET_TZ` encodes this explicitly
+rather than relying on the querying machine's local timezone.
+
+Also present on each row (not currently used by the summary feature, but
+confirmed available): `cup_num`, `buyer_logon_id`/`buyer_open_id`/
+`trade_no` (payment gateway references), `out_trade_no`/`out_order_code`,
+`paytime`/`canceltime`/`pay_end_time` (plus their `_text` equivalents),
+and full nested `device`/`clients` objects (same shape as the equipment
+endpoint).
+
 ## What's still unconfirmed
 
 - No device in this account is currently reporting a non-"Normal"

@@ -49,13 +49,13 @@ logger = logging.getLogger(__name__)
 # responds correctly to a plain XHR-style request (confirmed via
 # page.request.get() during discovery), but a normal-looking UA reduces
 # the odds of being treated differently by any UA-sniffing middleware.
-_USER_AGENT = (
+USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
 )
 
 
-def _is_not_authenticated_payload(data: object) -> bool:
+def is_not_authenticated_payload(data: object) -> bool:
     """True for FastAdmin's standard "please log in" AJAX response shape:
     {"code":0, "msg":"...", "url":"/.../index/login?...", "wait":N}"""
     return (
@@ -65,7 +65,7 @@ def _is_not_authenticated_payload(data: object) -> bool:
     )
 
 
-def _load_cookies(storage_state_path: Path) -> httpx.Cookies:
+def load_cookies(storage_state_path: Path) -> httpx.Cookies:
     cookies = httpx.Cookies()
     if not storage_state_path.exists():
         return cookies
@@ -93,12 +93,12 @@ class LightweightTargetClient:
         """Re-reads data/storage_state/session.json from disk — call this
         after a browser-based re-authentication (monitoring/worker.py's
         _reauthenticate()) has written a fresh session there."""
-        cookies = _load_cookies(self.settings.storage_state_path)
+        cookies = load_cookies(self.settings.storage_state_path)
         self._http = httpx.AsyncClient(
             cookies=cookies,
             follow_redirects=True,
             timeout=15.0,
-            headers={"User-Agent": _USER_AGENT},
+            headers={"User-Agent": USER_AGENT},
         )
 
     def has_saved_session(self) -> bool:
@@ -130,7 +130,7 @@ class LightweightTargetClient:
 
         if isinstance(data, dict) and "rows" in data:
             return True
-        if _is_not_authenticated_payload(data):
+        if is_not_authenticated_payload(data):
             logger.info("Target reports not authenticated — session invalid, missing, or expired")
             return False
 
@@ -172,7 +172,7 @@ class LightweightTargetClient:
             except json.JSONDecodeError as e:
                 raise ExtractionError(f"Device list API did not return valid JSON: {e}") from e
 
-            if _is_not_authenticated_payload(data):
+            if is_not_authenticated_payload(data):
                 # Session expired between is_session_valid() and this call
                 # (or that check was skipped) — surfaced distinctly so the
                 # worker retriggers re-authentication next cycle, rather

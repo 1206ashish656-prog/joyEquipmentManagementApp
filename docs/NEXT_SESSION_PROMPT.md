@@ -36,7 +36,29 @@ screenshots, tool appendix) also exists:
 | 5 — Web dashboard | Built, live-verified with real HTTP traffic |
 | 6 — Production hardening | **Not started** |
 
-73 automated tests pass (`pytest tests/ --ignore=tests/tc_001_target_connection`).
+90 automated tests pass (`pytest tests/ --ignore=tests/tc_001_target_connection`).
+
+**New, independent feature (2026-08-24): daily order summary.** Separate
+`orders/` package (doesn't touch `monitoring/`/`services/`/`db/`) that
+fetches Order Management → Order Information (a section the *original*
+spec listed as a non-goal — now in scope by explicit request), filters to
+`order_status=Completed AND delivery_status=Success`, and computes
+aggregate + machine-wise daily summaries (orders, avg price, total
+oranges, avg juice weight) into a CSV cache
+(`data/order_summaries/daily_summary.csv`, git-ignored — real business
+data) that skips already-computed dates. **Verified for exactly one day
+so far (2026-08-23: 310 raw → 249 qualifying orders) — not yet
+independently cross-checked against the target app's own UI, and not yet
+backfilled across history (32,049 total orders exist ≈ 100+ days).** A
+real, previously-unknown detail surfaced building this: the target's
+`createtime` date-range filter uses **UTC+8 day boundaries**, confirmed
+live, not UTC/IST/local time — see
+`docs/target_application_integration_spec.md`. Next steps for this
+feature: get the user's sign-off on the one verified day, then run the
+full historical backfill (`python -m orders.backfill --start <earliest>
+--end <today>`) — sequential, will take a while at ~1 request per ~100
+orders — then eventually the CSV→database migration the user already
+flagged as a later step.
 
 ## Critical context — do not relearn these the hard way
 
