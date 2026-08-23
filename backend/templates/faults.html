@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Active Faults — Equipment Monitor{% endblock %}
+{% block content %}
+<h1>Active Faults</h1>
+<table class="equipment-table">
+  <thead><tr><th>Equipment</th><th>Fault</th><th>Severity</th><th>Started</th><th>Duration</th></tr></thead>
+  <tbody>
+    {% for row in incidents %}
+    <tr>
+      <td><a href="/faults/{{ row.incident.id }}">{{ row.equipment.name }} ({{ row.equipment.external_id }})</a></td>
+      <td>{{ row.incident.fault_type }}</td>
+      <td>{{ row.incident.severity }}</td>
+      <td>{{ row.incident.started_at }}</td>
+      <td>{{ row.duration }}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5">No active faults 🎉</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}{{ equipment.name }} — Equipment Monitor{% endblock %}
+{% block content %}
+<p><a href="/">&larr; Back to dashboard</a></p>
+<h1>{{ equipment.name }}</h1>
+
+<section class="detail-grid">
+  <div>
+    <h2>Equipment</h2>
+    <table class="kv">
+      <tr><td>ID</td><td>{{ equipment.external_id }}</td></tr>
+      <tr><td>Equipment Code</td><td>{{ equipment.equipment_code }}</td></tr>
+      <tr><td>Device Type</td><td>{{ equipment.device_type }}</td></tr>
+      <tr><td>Advertising Group</td><td>{{ equipment.advertising_group or "—" }}</td></tr>
+      <tr><td>Device Address</td><td>{{ equipment.device_address or "—" }}</td></tr>
+    </table>
+  </div>
+
+  <div>
+    <h2>Current Health</h2>
+    {% if current %}
+    <table class="kv">
+      <tr><td>Health</td><td><span class="badge {{ current.health_state | health_css_class }}">{{ current.health_state | health_emoji }} {{ current.health_state.value }}</span></td></tr>
+      <tr><td>Status</td><td>{{ current.status }}</td></tr>
+      <tr><td>Network Status</td><td>{{ current.network_status }}</td></tr>
+      <tr><td>Fault Type</td><td>{{ current.fault_type }}</td></tr>
+      <tr><td>Material Shortage</td><td>{{ current.material_shortage_status }}</td></tr>
+      <tr><td>Remaining Oranges</td><td>{{ current.remaining_oranges or "—" }}</td></tr>
+      <tr><td>Last Updated</td><td>{{ current.last_seen_at }}</td></tr>
+    </table>
+    {% else %}
+    <p>No observations recorded yet.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section>
+  <h2>Incident Summary</h2>
+  <table class="kv">
+    <tr><td>First Fault Detected</td><td>{{ first_fault.started_at if first_fault else "—" }}</td></tr>
+    <tr>
+      <td>Current Incident</td>
+      <td>
+        {% if active_incident %}
+          <a href="/faults/{{ active_incident.id }}">{{ active_incident.fault_type }} (since {{ active_incident.started_at }})</a>
+        {% else %}
+          None — healthy
+        {% endif %}
+      </td>
+    </tr>
+  </table>
+</section>
+
+<section>
+  <h2>Historical Health (most recent {{ snapshots|length }})</h2>
+  <table class="equipment-table">
+    <thead><tr><th>Observed At</th><th>Health</th><th>Status</th><th>Network</th><th>Fault</th></tr></thead>
+    <tbody>
+      {% for s in snapshots %}
+      <tr>
+        <td>{{ s.observed_at }}</td>
+        <td><span class="badge {{ s.health_state | health_css_class }}">{{ s.health_state | health_emoji }} {{ s.health_state.value }}</span></td>
+        <td>{{ s.status }}</td>
+        <td>{{ s.network_status }}</td>
+        <td>{{ s.fault_type }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">No history yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Incident History</h2>
+  <table class="equipment-table">
+    <thead><tr><th>Started</th><th>Resolved</th><th>Fault</th><th>Severity</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for i in incidents %}
+      <tr>
+        <td><a href="/faults/{{ i.id }}">{{ i.started_at }}</a></td>
+        <td>{{ i.resolved_at or "—" }}</td>
+        <td>{{ i.fault_type }}</td>
+        <td>{{ i.severity }}</td>
+        <td>{{ i.status.value }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">No incidents recorded.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

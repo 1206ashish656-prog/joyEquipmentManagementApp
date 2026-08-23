@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Fault Detail — Equipment Monitor{% endblock %}
+{% block content %}
+<p><a href="/faults">&larr; Back to active faults</a></p>
+<h1>Fault Details</h1>
+<table class="kv">
+  <tr><td>Equipment</td><td><a href="/equipment/{{ equipment.id }}">{{ equipment.name }}</a></td></tr>
+  <tr><td>Equipment ID</td><td>{{ equipment.external_id }}</td></tr>
+  <tr><td>Equipment Code</td><td>{{ equipment.equipment_code }}</td></tr>
+  <tr><td>Fault</td><td>{{ incident.fault_type }}</td></tr>
+  <tr><td>Severity</td><td>{{ incident.severity }}</td></tr>
+  <tr><td>Detected</td><td>{{ incident.started_at }}</td></tr>
+  <tr><td>Resolved</td><td>{{ incident.resolved_at or "—" }}</td></tr>
+  <tr><td>Duration</td><td>{{ duration or "—" }}</td></tr>
+  <tr><td>Current State</td><td>{{ incident.status.value }}</td></tr>
+  <tr><td>Notification Sent</td><td>{{ "Yes" if incident.notification_sent else "No" }}</td></tr>
+</table>
+{% endblock %}

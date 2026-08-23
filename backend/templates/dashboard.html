@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Equipment Monitor{% endblock %}
+{% block content %}
+<h1>Fleet Overview</h1>
+
+<section class="status-panel">
+  <h2>Monitoring Status</h2>
+  <table class="kv">
+    <tr><td>Monitoring Status</td><td>{{ monitoring.worker_status }}</td></tr>
+    <tr><td>Target Session</td><td>{{ monitoring.target_session }}</td></tr>
+    <tr><td>Last Poll</td><td>{{ monitoring.last_run.completed_at if monitoring.last_run else "—" }}</td></tr>
+    <tr><td>Next Poll (est.)</td><td>{{ monitoring.next_poll_estimate or "—" }}</td></tr>
+    <tr><td>Polling Interval</td><td>{{ monitoring.poll_interval_seconds }}s</td></tr>
+    {% if monitoring.last_run %}
+    <tr><td>Machines Retrieved (last run)</td><td>{{ monitoring.last_run.records_found }}</td></tr>
+    {% if monitoring.last_run.error_message %}
+    <tr><td>Last Error</td><td class="error">{{ monitoring.last_run.error_message }}</td></tr>
+    {% endif %}
+    {% endif %}
+  </table>
+</section>
+
+<section class="counts">
+  <div class="count-tile"><div class="n">{{ total }}</div><div class="label">Total</div></div>
+  <div class="count-tile"><div class="n">{{ counts["HEALTHY"] }}</div><div class="label">🟢 Healthy</div></div>
+  <div class="count-tile"><div class="n">{{ counts["WARNING"] }}</div><div class="label">🟡 Warning</div></div>
+  <div class="count-tile"><div class="n">{{ counts["MALFUNCTION"] }}</div><div class="label">🔴 Malfunction</div></div>
+  <div class="count-tile"><div class="n">{{ counts["OFFLINE"] }}</div><div class="label">⚫ Offline</div></div>
+  <div class="count-tile"><div class="n">{{ counts["UNKNOWN"] }}</div><div class="label">⚪ Unknown</div></div>
+</section>
+
+<section>
+  <h2>Equipment</h2>
+  <table class="equipment-table">
+    <thead>
+      <tr><th>ID</th><th>Name</th><th>Equipment Code</th><th>Health</th><th>Network</th><th>Fault</th><th>Last Updated</th></tr>
+    </thead>
+    <tbody>
+      {% for row in equipment_rows %}
+      <tr>
+        <td><a href="/equipment/{{ row.equipment.id }}">{{ row.equipment.external_id }}</a></td>
+        <td>{{ row.equipment.name }}</td>
+        <td>{{ row.equipment.equipment_code }}</td>
+        <td><span class="badge {{ row.health_state | health_css_class }}">{{ row.health_state | health_emoji }} {{ row.health_state.value }}</span></td>
+        <td>{{ row.current.network_status if row.current else "—" }}</td>
+        <td>{{ row.current.fault_type if row.current else "—" }}</td>
+        <td>{{ row.current.last_seen_at if row.current else "—" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7">No equipment observed yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

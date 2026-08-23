@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Equipment Monitor{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+{% if user %}
+<nav class="topnav">
+  <div class="brand"><a href="/">Equipment Monitor</a></div>
+  <div class="links">
+    <a href="/">Dashboard</a>
+    <a href="/faults">Active Faults</a>
+    <a href="/subscriptions">My Alerts</a>
+    {% if user.role == "admin" %}<a href="/users">Users</a>{% endif %}
+  </div>
+  <div class="userbox">
+    <span>{{ user.name }} ({{ user.role }})</span>
+    <form method="post" action="/logout">
+      <button type="submit" class="linklike">Logout</button>
+    </form>
+  </div>
+</nav>
+{% endif %}
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

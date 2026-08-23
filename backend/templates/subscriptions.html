@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}My Alerts — Equipment Monitor{% endblock %}
+{% block content %}
+<h1>My Alert Subscriptions</h1>
+
+<table class="equipment-table">
+  <thead><tr><th>Machine</th><th>Severity</th><th>Channel</th><th>Enabled</th><th></th></tr></thead>
+  <tbody>
+    {% for sub, equip in subscriptions %}
+    <tr>
+      <td>{{ equip.name if equip else "All machines" }}</td>
+      <td>{{ sub.severity or "All severities" }}</td>
+      <td>{{ sub.notification_type }}</td>
+      <td>{{ "Yes" if sub.enabled else "No" }}</td>
+      <td>
+        <form method="post" action="/subscriptions/{{ sub.id }}/toggle" style="display:inline"><button type="submit" class="linklike">{{ "Disable" if sub.enabled else "Enable" }}</button></form>
+        <form method="post" action="/subscriptions/{{ sub.id }}/delete" style="display:inline"><button type="submit" class="linklike">Delete</button></form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5">No subscriptions yet — add one below.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Add Subscription</h2>
+<form method="post" action="/subscriptions" class="stacked-form">
+  <label>Machine
+    <select name="equipment_id">
+      <option value="">All machines</option>
+      {% for e in equipment_list %}
+      <option value="{{ e.id }}">{{ e.name }} ({{ e.external_id }})</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Severity
+    <select name="severity">
+      <option value="">All severities</option>
+      <option value="Critical">Critical</option>
+      <option value="Warning">Warning</option>
+    </select>
+  </label>
+  <button type="submit">Add Subscription</button>
+</form>
+{% endblock %}

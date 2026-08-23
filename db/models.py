@@ -150,6 +150,13 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(32), default="user")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    # Salted PBKDF2 hash for THIS app's own dashboard login — entirely
+    # separate from the target application's credentials (which live only
+    # in .env, never in this database). One-way hash only; there is no
+    # decrypt path, satisfying requirement #17's "encrypted at rest" for
+    # the strongest reasonable sense of that phrase. Never rendered in any
+    # template or included in any API response.
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     subscriptions: Mapped[list["AlertSubscription"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

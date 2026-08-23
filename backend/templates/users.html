@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Users — Equipment Monitor{% endblock %}
+{% block content %}
+<h1>Users</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<table class="equipment-table">
+  <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Active</th><th></th></tr></thead>
+  <tbody>
+    {% for u in users %}
+    <tr>
+      <td>{{ u.name }}</td>
+      <td>{{ u.email }}</td>
+      <td>{{ u.role }}</td>
+      <td>{{ "Yes" if u.active else "No" }}</td>
+      <td>
+        {% if u.active %}
+        <form method="post" action="/users/{{ u.id }}/deactivate"><button type="submit" class="linklike">Deactivate</button></form>
+        {% else %}
+        <form method="post" action="/users/{{ u.id }}/activate"><button type="submit" class="linklike">Activate</button></form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Add User</h2>
+<form method="post" action="/users" class="stacked-form">
+  <label>Name<input type="text" name="name" required></label>
+  <label>Email<input type="email" name="email" required></label>
+  <label>Password<input type="password" name="password" required></label>
+  <label>Role
+    <select name="role">
+      <option value="user">User</option>
+      <option value="admin">Admin</option>
+    </select>
+  </label>
+  <button type="submit">Add User</button>
+</form>
+{% endblock %}
