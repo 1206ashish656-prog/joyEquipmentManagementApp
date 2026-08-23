@@ -7,10 +7,12 @@ from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
 
+from backend.deps import home_url_for
 from db.models import HealthState
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates.env.globals["home_url"] = home_url_for
 
 _HEALTH_EMOJI = {
     HealthState.HEALTHY: "🟢",

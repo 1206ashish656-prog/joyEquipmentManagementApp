@@ -143,6 +143,22 @@ class FaultIncident(Base):
     equipment: Mapped["Equipment"] = relationship(back_populates="incidents")
 
 
+class UserRole(str, enum.Enum):
+    """The three access levels (spec: per-role view restriction).
+
+    - ADMIN: full application access, unrestricted.
+    - OPERATIONS: ground/ops staff — equipment monitoring only
+      (dashboard, active faults, alert subscriptions). No order data.
+    - VENUE_PARTNER: machine venue partners — order summary only,
+      scoped to their own venue's machine(s) via User.venue_provider
+      (see VenueMapping below). No equipment/monitoring access.
+    """
+
+    ADMIN = "admin"
+    OPERATIONS = "operations"
+    VENUE_PARTNER = "venue_partner"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -150,7 +166,18 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(255))
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    role: Mapped[str] = mapped_column(String(32), default="user")
+    # Plain string (not a native DB enum) so it round-trips identically on
+    # SQLite and Postgres, same rationale as health_state/incident_status
+    # above — validated against UserRole at the application layer
+    # (backend/api/users.py), not enforced by the column type.
+    role: Mapped[str] = mapped_column(String(32), default=UserRole.OPERATIONS.value)
+    # Only meaningful when role == VENUE_PARTNER — which venue_provider
+    # (see VenueMapping.venue_provider) this user's order-summary view is
+    # scoped to. NULL for admin/operations users, and for a venue_partner
+    # who hasn't been assigned a venue yet (backend/api/orders.py shows an
+    # explicit "no venue assigned" state rather than silently showing
+    # nothing or everything).
+    venue_provider: Mapped[str | None] = mapped_column(String(255), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     # Salted PBKDF2 hash for THIS app's own dashboard login — entirely
@@ -263,3 +290,24 @@ class OrderSummary(Base):
     total_number_of_oranges: Mapped[int] = mapped_column(Integer)
     average_juice_weight: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+# --- Venue mapping (access control — see User.role/venue_provider above) ---
+#
+# A separate, independent table (not a column on Equipment/OrderSummary)
+# because it's a pure lookup dimension maintained by an admin, decoupled
+# from both the equipment poller and the order backfill — either could
+# run without this table existing at all. machine_name matches
+# OrderSummary.device_app / Equipment.name (e.g. "NEXUS", "Gravity");
+# matching is done case-insensitively at query time (backend/api/orders.py)
+# since the target app itself isn't consistent about casing.
+
+
+class VenueMapping(Base):
+    __tablename__ = "venue_mapping"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    machine_name: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    venue_provider: Mapped[str] = mapped_column(String(255), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from backend.api.equipment import _monitoring_status
-from backend.deps import get_db, get_settings, require_user
+from backend.deps import get_db, get_settings, require_operations
 from db.models import User
 from monitoring.config import Settings
 
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api")
 
 @router.get("/monitoring/status")
 def monitoring_status(
-    user: User = Depends(require_user),
+    user: User = Depends(require_operations),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):

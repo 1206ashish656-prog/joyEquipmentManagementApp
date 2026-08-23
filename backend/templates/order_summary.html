@@ -4,9 +4,13 @@
 {% block content %}
 <h1>Order Summary</h1>
 
-{% if not has_data %}
-<div class="callout">No order data cached for {{ start }} — {{ end }} yet. Run
-  <code>python -m orders.backfill --date {{ as_of }}</code> (or a range) to populate it.</div>
+{% if venue_unassigned %}
+<div class="callout">Your account isn't assigned to a venue yet, so there's no order data to show. Ask an admin to set a venue on your user account.</div>
+{% elif user.role == "venue_partner" and not venue_machines %}
+<div class="callout">No machine is currently mapped to your venue ("{{ venue_provider }}"). Ask an admin to add it to the venue mapping.</div>
+{% elif not has_data %}
+<div class="callout">No order data cached for {{ start }} — {{ end }} yet.{% if user.role == "admin" %} Run
+  <code>python -m orders.backfill --date {{ as_of }}</code> (or a range) to populate it.{% endif %}</div>
 {% endif %}
 
 <section class="status-panel">
@@ -32,6 +36,9 @@
     <button type="submit">Apply</button>
   </form>
   <table class="kv" style="margin-top:10px;">
+    {% if user.role == "venue_partner" %}
+    <tr><td>Venue</td><td>{{ venue_provider or "— not assigned —" }}{% if venue_machines %} ({{ venue_machines|join(", ") }}){% endif %}</td></tr>
+    {% endif %}
     <tr><td>Date range</td><td>{{ start }}{% if end != start %} to {{ end }}{% endif %}</td></tr>
     <tr><td>Latest data available</td><td>{{ latest_available_date or "—" }}</td></tr>
     <tr><td>Breakdown</td><td>{{ group_by_labels|join(", ") }}</td></tr>

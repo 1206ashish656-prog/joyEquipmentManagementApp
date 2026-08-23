@@ -9,6 +9,10 @@ Steady-state polling uses a plain async HTTP client with the session's
 cookies (see "No persistent browser" below); a real Chromium instance is
 launched only for the rare CAPTCHA login itself, then closed immediately.
 
+Every user prompt that shaped this build is logged verbatim (where
+preserved) in [`docs/prompt_logs.md`](docs/prompt_logs.md) — append new
+ones there rather than starting a second log.
+
 ## Current scope
 
 | Phase | Status |
@@ -302,6 +306,50 @@ flexible period/breakdown queries the UI needs.
   consecutive days' earliest/latest order timestamps. Getting this wrong
   would have silently shifted every day's numbers. See
   `docs/target_application_integration_spec.md`.
+
+## Access control (RBAC)
+
+Three roles (`db/models.py`'s `UserRole`), enforced at the route level via
+`backend/deps.py`'s `require_operations`/`require_venue_partner`/
+`require_admin` FastAPI dependencies — not just hidden nav links:
+
+| Role | Can see |
+|---|---|
+| `admin` | Everything, unrestricted. |
+| `operations` | Equipment monitoring only: Dashboard, Active Faults, My Alerts, `/api/monitoring/status`. No order data, no user management. |
+| `venue_partner` | Order Summary only, scoped to their own venue's machine(s) — see below. No equipment/dashboard access. |
+
+A venue partner's scope comes from two things together: `User.venue_provider`
+(which venue they represent) and the new **`venue_mapping`** table
+(`machine_name` → `venue_provider`, matched case-insensitively), seeded via:
+
+```bash
+python -m db.seed_venue_mapping          # seeds the known 2026-08-24 mapping:
+                                          #   PNR     -> PNR Felicity
+                                          #   NEXUS   -> Forum Kormangala
+                                          #   Gravity -> Prestige Tech Park
+python -m db.seed_venue_mapping --set "Warehouse=Some Venue"   # add/override one
+```
+
+`backend/api/orders.py` filters `OrderSummary` rows to
+`device_app IN (machines mapped to this user's venue_provider)` before any
+rollup runs — a venue partner never receives another venue's rows over the
+wire, not just a UI that hides them. A venue partner with no
+`venue_provider` set, or one that maps to zero machines, gets an explicit
+"no venue assigned" message rather than an empty table that looks like a
+bug. Post-login redirect is role-aware too (`home_url_for` in
+`backend/deps.py`): a venue partner lands on `/orders/summary`, not `/`
+(which they can't see).
+
+Admins assign role + venue when creating a user (`/users`, admin-only) —
+the "Venue Partner" role reveals a venue dropdown (populated from
+`venue_mapping`) that's required before the form will submit.
+
+Existing deployments upgrading from before this feature need a manual
+schema patch (this project has no Alembic yet — see Phase 6 in
+`docs/NEXT_SESSION_PROMPT.md`): `ALTER TABLE users ADD COLUMN
+venue_provider VARCHAR(255)`, then `python -m db.seed_venue_mapping`
+(which also creates the new `venue_mapping` table via `create_all()`).
 
 ## Architecture (current pieces)
 

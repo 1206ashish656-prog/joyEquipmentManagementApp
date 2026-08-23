@@ -28,16 +28,20 @@
 </button>
 {% if user %}
 <nav class="topnav">
-  <div class="brand"><a href="/">🍊 JOY Equipment Monitor</a></div>
+  <div class="brand"><a href="{{ home_url(user) }}">🍊 JOY Equipment Monitor</a></div>
   <div class="links">
+    {% if user.role in ("admin", "operations") %}
     <a href="/">Dashboard</a>
     <a href="/faults">Active Faults</a>
-    <a href="/orders/summary">Order Summary</a>
     <a href="/subscriptions">My Alerts</a>
+    {% endif %}
+    {% if user.role in ("admin", "venue_partner") %}
+    <a href="/orders/summary">Order Summary</a>
+    {% endif %}
     {% if user.role == "admin" %}<a href="/users">Users</a>{% endif %}
   </div>
   <div class="userbox">
-    <span>{{ user.name }} ({{ user.role }})</span>
+    <span>{{ user.name }} ({{ user.role }}{% if user.venue_provider %} · {{ user.venue_provider }}{% endif %})</span>
     <form method="post" action="/logout">
       <button type="submit" class="linklike">Logout</button>
     </form>

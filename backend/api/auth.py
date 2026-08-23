@@ -5,7 +5,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.deps import SESSION_COOKIE_NAME, get_current_user, get_db, get_settings
+from backend.deps import SESSION_COOKIE_NAME, get_current_user, get_db, get_settings, home_url_for
 from backend.security import sign_session, verify_password
 from backend.templating import templates
 from db.models import User
@@ -17,7 +17,7 @@ router = APIRouter()
 @router.get("/login")
 def login_form(request: Request, user: User | None = Depends(get_current_user)):
     if user is not None:
-        return RedirectResponse(url="/", status_code=303)
+        return RedirectResponse(url=home_url_for(user), status_code=303)
     return templates.TemplateResponse(request, "login.html", {"error": None})
 
 
@@ -46,7 +46,7 @@ def login_submit(
         )
 
     token = sign_session(user.id, settings.web_secret_key)
-    response = RedirectResponse(url="/", status_code=303)
+    response = RedirectResponse(url=home_url_for(user), status_code=303)
     response.set_cookie(
         SESSION_COOKIE_NAME, token, httponly=True, samesite="lax", max_age=7 * 24 * 3600,
     )

@@ -5,13 +5,14 @@
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 
 <table class="equipment-table">
-  <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Active</th><th></th></tr></thead>
+  <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Venue</th><th>Active</th><th></th></tr></thead>
   <tbody>
     {% for u in users %}
     <tr>
       <td>{{ u.name }}</td>
       <td>{{ u.email }}</td>
       <td>{{ u.role }}</td>
+      <td>{{ u.venue_provider or "—" }}</td>
       <td>{{ "Yes" if u.active else "No" }}</td>
       <td>
         {% if u.active %}
@@ -26,16 +27,41 @@
 </table>
 
 <h2>Add User</h2>
-<form method="post" action="/users" class="stacked-form">
+<p class="callout">
+  <strong>Admin</strong> — full application access.
+  <strong>Operations</strong> — equipment dashboard, active faults, and alert subscriptions only (no order data).
+  <strong>Venue Partner</strong> — Order Summary only, scoped to their assigned venue's machine(s).
+</p>
+<form method="post" action="/users" class="stacked-form" id="add-user-form">
   <label>Name<input type="text" name="name" required></label>
   <label>Email<input type="email" name="email" required></label>
   <label>Password<input type="password" name="password" required></label>
   <label>Role
-    <select name="role">
-      <option value="user">User</option>
-      <option value="admin">Admin</option>
+    <select name="role" id="role-select">
+      <option value="operations">Operations (dashboard only)</option>
+      <option value="venue_partner">Venue Partner (order summary only)</option>
+      <option value="admin">Admin (full access)</option>
+    </select>
+  </label>
+  <label id="venue-field" style="display:none;">Venue
+    <select name="venue_provider">
+      <option value="">— select a venue —</option>
+      {% for v in venues %}
+      <option value="{{ v }}">{{ v }}</option>
+      {% endfor %}
     </select>
   </label>
   <button type="submit">Add User</button>
 </form>
+<script>
+  (function () {
+    var roleSelect = document.getElementById("role-select");
+    var venueField = document.getElementById("venue-field");
+    function sync() {
+      venueField.style.display = roleSelect.value === "venue_partner" ? "flex" : "none";
+    }
+    roleSelect.addEventListener("change", sync);
+    sync();
+  })();
+</script>
 {% endblock %}

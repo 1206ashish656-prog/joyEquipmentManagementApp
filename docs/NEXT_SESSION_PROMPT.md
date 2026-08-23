@@ -16,10 +16,11 @@ stores history, alerts subscribers by email, and serves a live web
 dashboard. Repo: `c:\Users\hp\Desktop\self_projects\joyHealthMonitorinApp`
 (git initialized, latest commit `4a586d0`).
 
-**Read these two files first, in order — they carry all the detail this
-prompt intentionally omits:**
+**Read these files first — they carry all the detail this prompt
+intentionally omits:**
 1. [`README.md`](../README.md) — setup, run commands, architecture, current gaps.
 2. [`docs/target_application_integration_spec.md`](target_application_integration_spec.md) — confirmed real target-app endpoints, login form fields, session-validity behavior, the CAPTCHA bug evidence.
+3. [`docs/prompt_logs.md`](prompt_logs.md) — every user prompt that shaped this build, verbatim where preserved. **Append new prompts here as they come in** — don't start a second log, and don't skip prompts just because a turn also touched other files.
 
 A full narrative report (workflow diagrams, framework justification,
 screenshots, tool appendix) also exists:
@@ -130,6 +131,25 @@ day boundaries**, confirmed live, not UTC/IST/local time — see
   automatic), but this is a genuine limitation for anything beyond
   local/demo use. See README's "⚠️ Operational constraint" section — the
   🔖 bookmarked fix is always-on cloud hosting (below).
+
+**New: RBAC + venue mapping (2026-08-24).** Three roles now
+(`db/models.py`'s `UserRole`): `admin` (unrestricted), `operations`
+(equipment monitoring only — Dashboard/Active Faults/My Alerts, no order
+data), `venue_partner` (Order Summary only, scoped to their own venue's
+machine(s)). Enforced at the route level (`backend/deps.py`'s
+`require_operations`/`require_venue_partner`), not just hidden nav links —
+verified live with real HTTP requests per role, not just tests. New
+`venue_mapping` table (`machine_name` → `venue_provider`, seeded via
+`python -m db.seed_venue_mapping`) plus `User.venue_provider` drive the
+scoping; see README's "Access control (RBAC)" section for the full
+picture, including the manual schema patch existing SQLite DBs need
+(`ALTER TABLE users ADD COLUMN venue_provider VARCHAR(255)` — no Alembic
+yet). Nothing under `monitoring/`/`services/` was touched. **Also new:
+the front end was restyled to match the company site (joyjuice.in) — warm
+orange/cream palette, Poppins type — with a working dark/light toggle
+(`backend/static/theme.js`, persisted via `localStorage`). Same
+FastAPI+Jinja2 backend throughout; no JS framework/build step was added
+(explicit user choice — "restyle only" over a full React rewrite).**
 
 ## Architecture (one paragraph)
 

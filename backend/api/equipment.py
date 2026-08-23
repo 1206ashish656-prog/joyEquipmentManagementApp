@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.deps import get_db, get_settings, require_user
+from backend.deps import get_db, get_settings, require_operations
 from backend.templating import templates
 from db.models import (
     Equipment,
@@ -67,7 +67,7 @@ def _monitoring_status(db: Session, settings: Settings) -> dict:
 @router.get("/", response_class=HTMLResponse)
 def dashboard(
     request: Request,
-    user: User = Depends(require_user),
+    user: User = Depends(require_operations),
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ):
@@ -102,7 +102,7 @@ def dashboard(
 def equipment_detail(
     equipment_id: int,
     request: Request,
-    user: User = Depends(require_user),
+    user: User = Depends(require_operations),
     db: Session = Depends(get_db),
 ):
     equipment = db.get(Equipment, equipment_id)

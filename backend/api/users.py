@@ -10,15 +10,20 @@ from sqlalchemy.orm import Session
 from backend.deps import get_db, require_admin
 from backend.security import hash_password
 from backend.templating import templates
-from db.models import User
+from db.models import User, UserRole, VenueMapping
 
 router = APIRouter()
+
+_VALID_ROLES = {r.value for r in UserRole}
 
 
 @router.get("/users", response_class=HTMLResponse)
 def list_users(request: Request, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     users = db.execute(select(User).order_by(User.name)).scalars().all()
-    return templates.TemplateResponse(request, "users.html", {"user": admin, "users": users, "error": None})
+    venues = sorted({v for (v,) in db.execute(select(VenueMapping.venue_provider).distinct())})
+    return templates.TemplateResponse(
+        request, "users.html", {"user": admin, "users": users, "venues": venues, "error": None}
+    )
 
 
 @router.post("/users")
@@ -27,26 +32,41 @@ def create_user(
     name: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
-    role: str = Form("user"),
+    role: str = Form(UserRole.OPERATIONS.value),
+    venue_provider: str = Form(""),
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     email = email.strip().lower()
-    existing = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
-    if existing is not None:
+    role = role if role in _VALID_ROLES else UserRole.OPERATIONS.value
+    venue_provider = venue_provider.strip() or None
+
+    def _rerender(error: str):
         users = db.execute(select(User).order_by(User.name)).scalars().all()
+        venues = sorted({v for (v,) in db.execute(select(VenueMapping.venue_provider).distinct())})
         return templates.TemplateResponse(
             request,
             "users.html",
-            {"user": admin, "users": users, "error": f"A user with email {email} already exists."},
+            {"user": admin, "users": users, "venues": venues, "error": error},
             status_code=400,
         )
+
+    existing = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if existing is not None:
+        return _rerender(f"A user with email {email} already exists.")
+
+    if role == UserRole.VENUE_PARTNER.value and not venue_provider:
+        return _rerender("A venue partner user must be assigned a venue.")
 
     db.add(
         User(
             name=name.strip(),
             email=email,
-            role="admin" if role == "admin" else "user",
+            role=role,
+            # Only venue_partner accounts carry a venue — keeps the field
+            # meaningless-but-set-by-accident from ever happening for the
+            # other two roles.
+            venue_provider=venue_provider if role == UserRole.VENUE_PARTNER.value else None,
             active=True,
             password_hash=hash_password(password),
         )

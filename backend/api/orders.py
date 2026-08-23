@@ -17,9 +17,9 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from backend.deps import get_db, require_user
+from backend.deps import get_db, require_venue_partner
 from backend.templating import templates
-from db.models import OrderSummary, OrderSummaryRun, OrderSummaryRunStatus, User
+from db.models import OrderSummary, OrderSummaryRun, OrderSummaryRunStatus, User, VenueMapping
 from orders.rollup import rollup
 
 router = APIRouter()
@@ -38,6 +38,16 @@ def _latest_available_date(db: Session) -> str | None:
     return db.execute(
         select(func.max(OrderSummaryRun.date)).where(OrderSummaryRun.status == OrderSummaryRunStatus.SUCCESS)
     ).scalar_one_or_none()
+
+
+def _venue_machines(db: Session, venue_provider: str) -> list[str]:
+    """Machine names (OrderSummary.device_app values) mapped to a given
+    venue_provider — case-insensitively, since the target app isn't
+    consistent about casing (e.g. "NEXUS" vs "Nexus")."""
+    rows = db.execute(
+        select(VenueMapping.machine_name).where(func.lower(VenueMapping.venue_provider) == venue_provider.lower())
+    ).scalars().all()
+    return list(rows)
 
 
 def _period_range(period: str, as_of: str) -> tuple[str, str]:
@@ -99,7 +109,7 @@ def _time_series_payload(rows: list[OrderSummary], split_by_machine: bool) -> di
 @router.get("/orders/summary", response_class=HTMLResponse)
 def orders_summary(
     request: Request,
-    user: User = Depends(require_user),
+    user: User = Depends(require_venue_partner),
     db: Session = Depends(get_db),
 ):
     q = request.query_params
@@ -114,9 +124,27 @@ def orders_summary(
     as_of = q.get("as_of") or latest or date_cls.today().isoformat()
 
     start, end = _period_range(period, as_of)
-    rows = db.execute(
-        select(OrderSummary).where(OrderSummary.date >= start, OrderSummary.date <= end)
-    ).scalars().all()
+    query = select(OrderSummary).where(OrderSummary.date >= start, OrderSummary.date <= end)
+
+    # Venue partners are scoped to their own venue's machine(s) —
+    # requirement: "see order summary data specific to their venue only".
+    # Admins are never scoped (require_venue_partner already ensures the
+    # only two roles that reach this route are admin and venue_partner).
+    venue_machines: list[str] | None = None
+    venue_unassigned = False
+    if user.role == "venue_partner":
+        if not user.venue_provider:
+            venue_unassigned = True
+            rows = []
+        else:
+            venue_machines = _venue_machines(db, user.venue_provider)
+            rows = (
+                db.execute(query.where(OrderSummary.device_app.in_(venue_machines))).scalars().all()
+                if venue_machines
+                else []
+            )
+    else:
+        rows = db.execute(query).scalars().all()
 
     group_by = tuple(
         dim for dim, flag in [("device_app", by_machine), ("price", by_price), ("pay_type", by_pay_type)] if flag
@@ -149,6 +177,9 @@ def orders_summary(
             "overall_row": overall_row,
             "latest_available_date": latest,
             "has_data": bool(rows),
+            "venue_provider": user.venue_provider,
+            "venue_unassigned": venue_unassigned,
+            "venue_machines": venue_machines,
             "aggregate_chart_json": json.dumps(aggregate_chart_data, cls=_DecimalEncoder),
             "machine_chart_json": json.dumps(machine_chart_data, cls=_DecimalEncoder) if machine_chart_data else None,
         },

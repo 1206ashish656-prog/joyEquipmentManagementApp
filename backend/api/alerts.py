@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.deps import get_db, require_user
+from backend.deps import get_db, require_operations
 from backend.templating import templates
 from db.models import AlertSubscription, Equipment, FaultIncident, IncidentStatus, User
 
@@ -17,7 +17,7 @@ router = APIRouter()
 
 
 @router.get("/faults", response_class=HTMLResponse)
-def active_faults(request: Request, user: User = Depends(require_user), db: Session = Depends(get_db)):
+def active_faults(request: Request, user: User = Depends(require_operations), db: Session = Depends(get_db)):
     rows = db.execute(
         select(FaultIncident, Equipment)
         .join(Equipment, FaultIncident.equipment_id == Equipment.id)
@@ -37,7 +37,7 @@ def active_faults(request: Request, user: User = Depends(require_user), db: Sess
 
 
 @router.get("/faults/{incident_id}", response_class=HTMLResponse)
-def fault_detail(incident_id: int, request: Request, user: User = Depends(require_user), db: Session = Depends(get_db)):
+def fault_detail(incident_id: int, request: Request, user: User = Depends(require_operations), db: Session = Depends(get_db)):
     incident = db.get(FaultIncident, incident_id)
     if incident is None:
         return templates.TemplateResponse(request, "not_found.html", {"user": user}, status_code=404)
@@ -60,7 +60,7 @@ def fault_detail(incident_id: int, request: Request, user: User = Depends(requir
 
 
 @router.get("/subscriptions", response_class=HTMLResponse)
-def my_subscriptions(request: Request, user: User = Depends(require_user), db: Session = Depends(get_db)):
+def my_subscriptions(request: Request, user: User = Depends(require_operations), db: Session = Depends(get_db)):
     subs = db.execute(
         select(AlertSubscription, Equipment)
         .outerjoin(Equipment, AlertSubscription.equipment_id == Equipment.id)
@@ -81,7 +81,7 @@ def create_subscription(
     request: Request,
     equipment_id: str = Form(""),
     severity: str = Form(""),
-    user: User = Depends(require_user),
+    user: User = Depends(require_operations),
     db: Session = Depends(get_db),
 ):
     db.add(
@@ -97,7 +97,7 @@ def create_subscription(
 
 
 @router.post("/subscriptions/{subscription_id}/toggle")
-def toggle_subscription(subscription_id: int, user: User = Depends(require_user), db: Session = Depends(get_db)):
+def toggle_subscription(subscription_id: int, user: User = Depends(require_operations), db: Session = Depends(get_db)):
     sub = db.get(AlertSubscription, subscription_id)
     if sub is not None and (sub.user_id == user.id or user.role == "admin"):
         sub.enabled = not sub.enabled
@@ -105,7 +105,7 @@ def toggle_subscription(subscription_id: int, user: User = Depends(require_user)
 
 
 @router.post("/subscriptions/{subscription_id}/delete")
-def delete_subscription(subscription_id: int, user: User = Depends(require_user), db: Session = Depends(get_db)):
+def delete_subscription(subscription_id: int, user: User = Depends(require_operations), db: Session = Depends(get_db)):
     sub = db.get(AlertSubscription, subscription_id)
     if sub is not None and (sub.user_id == user.id or user.role == "admin"):
         db.delete(sub)

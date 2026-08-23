@@ -190,7 +190,7 @@ def test_active_faults_page_empty_state(client):
 def test_non_admin_cannot_access_users_page(client):
     test_client, SessionLocal = client
     with SessionLocal() as session:
-        session.add(User(name="Regular", email="user@example.com", role="user", active=True, password_hash=hash_password("pw123456")))
+        session.add(User(name="Regular", email="user@example.com", role="operations", active=True, password_hash=hash_password("pw123456")))
         session.commit()
     _login(test_client, "user@example.com", "pw123456")
 
@@ -205,7 +205,7 @@ def test_admin_can_create_user(client):
 
     resp = test_client.post(
         "/users",
-        data={"name": "New Guy", "email": "newguy@example.com", "password": "somepassword", "role": "user"},
+        data={"name": "New Guy", "email": "newguy@example.com", "password": "somepassword", "role": "operations"},
         follow_redirects=False,
     )
     assert resp.status_code == 303
@@ -213,7 +213,7 @@ def test_admin_can_create_user(client):
     with SessionLocal() as session:
         from sqlalchemy import select
         created = session.execute(select(User).where(User.email == "newguy@example.com")).scalar_one()
-        assert created.role == "user"
+        assert created.role == "operations"
         assert created.password_hash is not None
         assert created.password_hash != "somepassword"  # never stored in plaintext
 
