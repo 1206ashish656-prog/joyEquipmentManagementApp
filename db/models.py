@@ -359,6 +359,11 @@ class Staff(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255))
+    # Free text, not an enum -- unlike cost categories, no standard list
+    # was specified (e.g. "Operations team" / "Logistics"). Both nullable
+    # for staff added before this field existed.
+    department: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    sub_department: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     employment_start_date: Mapped[str] = mapped_column(String(10))  # 'YYYY-MM-DD'
     # NULL = still employed. Set on offboarding, never deleted, so past
     # leave records stay attributable to a real employment period.

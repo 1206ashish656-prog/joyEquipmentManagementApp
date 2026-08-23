@@ -197,13 +197,29 @@ def test_summary_custom_period_range(client):
 
 # --- Raw data view (view by selected category/vendor/item) ---
 
-def test_raw_entries_listed_on_summary_page(client):
+def test_raw_entries_hidden_by_default(client):
     test_client, SessionLocal = client
     _add_user(SessionLocal, "admin@example.com", "admin")
     _seed_entry(SessionLocal, "2026-08-24", "Oranges", "Fresh Farms", "50kg oranges", "5000.00")
     _login(test_client, "admin@example.com")
 
     resp = test_client.get("/costs?period=daily&as_of=2026-08-24")
+    assert resp.status_code == 200
+    assert "Raw Entries" not in resp.text
+    # "50kg oranges" still legitimately appears in the item filter
+    # dropdown regardless of the raw-data toggle -- the Edit/Delete
+    # controls only render inside the raw entries table, so their
+    # absence is the precise signal that the table itself is hidden.
+    assert ">Edit<" not in resp.text
+
+
+def test_raw_entries_shown_when_explicitly_requested(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _seed_entry(SessionLocal, "2026-08-24", "Oranges", "Fresh Farms", "50kg oranges", "5000.00")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/costs?period=daily&as_of=2026-08-24&show_raw_data=yes")
     assert resp.status_code == 200
     assert "Raw Entries" in resp.text
     assert "50kg oranges" in resp.text
@@ -217,7 +233,7 @@ def test_filter_by_category_narrows_raw_entries_and_total(client):
     _seed_entry(SessionLocal, "2026-08-24", "Rent", "Landlord", "Rent", "30000.00")
     _login(test_client, "admin@example.com")
 
-    resp = test_client.get("/costs?period=daily&as_of=2026-08-24&filter_category=Rent")
+    resp = test_client.get("/costs?period=daily&as_of=2026-08-24&filter_category=Rent&show_raw_data=yes")
     assert resp.status_code == 200
     assert "30000.00" in resp.text
     assert "5000.00" not in resp.text
@@ -230,7 +246,7 @@ def test_filter_by_vendor_narrows_to_that_vendor_only(client):
     _seed_entry(SessionLocal, "2026-08-24", "Oranges", "Other Farms", "Batch B", "3000.00")
     _login(test_client, "admin@example.com")
 
-    resp = test_client.get("/costs?period=daily&as_of=2026-08-24&filter_vendor=Other+Farms")
+    resp = test_client.get("/costs?period=daily&as_of=2026-08-24&filter_vendor=Other+Farms&show_raw_data=yes")
     assert resp.status_code == 200
     assert "3000.00" in resp.text
     assert "5000.00" not in resp.text
@@ -243,7 +259,7 @@ def test_filter_by_item_narrows_to_that_item_only(client):
     _seed_entry(SessionLocal, "2026-08-24", "Oranges", "Fresh Farms", "Batch B", "3000.00")
     _login(test_client, "admin@example.com")
 
-    resp = test_client.get("/costs?period=daily&as_of=2026-08-24&filter_item=Batch+B")
+    resp = test_client.get("/costs?period=daily&as_of=2026-08-24&filter_item=Batch+B&show_raw_data=yes")
     assert resp.status_code == 200
     assert "3000.00" in resp.text
     assert "5000.00" not in resp.text

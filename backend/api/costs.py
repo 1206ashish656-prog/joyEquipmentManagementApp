@@ -93,9 +93,17 @@ def costs_summary(
     overall = rollup(rows, group_by=())
     overall_row = overall[0] if overall else None
 
-    raw_rows_all = sorted(rows, key=lambda r: (r.date, r.id), reverse=True)
-    raw_truncated = len(raw_rows_all) > RAW_ROWS_LIMIT
-    raw_rows = raw_rows_all[:RAW_ROWS_LIMIT]
+    # "Raw data ... should only be displayed if explicitly asked" --
+    # defaults to hidden; the radio buttons on the page are what turn it
+    # on, not just having a category/vendor/item filter selected.
+    show_raw_data = q.get("show_raw_data", "no") == "yes"
+    raw_total_count = len(rows)
+    if show_raw_data:
+        raw_rows_all = sorted(rows, key=lambda r: (r.date, r.id), reverse=True)
+        raw_truncated = raw_total_count > RAW_ROWS_LIMIT
+        raw_rows = raw_rows_all[:RAW_ROWS_LIMIT]
+    else:
+        raw_rows, raw_truncated = [], False
 
     return templates.TemplateResponse(
         request,
@@ -119,8 +127,9 @@ def costs_summary(
             "table_rows": table_rows,
             "overall_row": overall_row,
             "has_data": bool(rows),
+            "show_raw_data": show_raw_data,
             "raw_rows": raw_rows,
-            "raw_total_count": len(raw_rows_all),
+            "raw_total_count": raw_total_count,
             "raw_truncated": raw_truncated,
             "standard_categories": STANDARD_COST_CATEGORIES,
             "staff_salaries_category": STAFF_SALARIES_CATEGORY,

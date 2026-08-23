@@ -60,6 +60,11 @@ def staff_page(
             "year": year,
             "month": month,
             "today": today.isoformat(),
+            # Datalist suggestions only -- free text, not enforced, so
+            # existing department names stay consistent without forcing
+            # a fixed list up front.
+            "known_departments": sorted({s.department for s in staff_list if s.department}),
+            "known_sub_departments": sorted({s.sub_department for s in staff_list if s.sub_department}),
         },
     )
 
@@ -67,6 +72,8 @@ def staff_page(
 @router.post("/staff")
 def create_staff(
     name: str = Form(...),
+    department: str = Form(""),
+    sub_department: str = Form(""),
     employment_start_date: str = Form(...),
     employment_end_date: str = Form(""),
     admin: User = Depends(require_admin),
@@ -75,6 +82,8 @@ def create_staff(
     db.add(
         Staff(
             name=name.strip(),
+            department=department.strip() or None,
+            sub_department=sub_department.strip() or None,
             employment_start_date=employment_start_date,
             employment_end_date=employment_end_date.strip() or None,
         )

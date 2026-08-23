@@ -380,18 +380,22 @@ underlying individual rows), and **edit or delete any logged entry**
 (`/costs/{id}/edit`, `/costs/{id}/delete`) — editing reuses the exact
 same category/vendor resolution rules as creating a new entry, so
 switching an edited row to "Others" or to "Staff Salaries" behaves
-identically to doing so on the add form.
+identically to doing so on the add form. The Raw Entries table itself is
+**hidden by default** — a "Raw data: Show / Hide" radio pair on the page
+controls it explicitly; the rollup breakdown and filters work either way.
 
 **Staff & Leave Management** (`/staff`, `staff/` package) — a staff
-roster (name, employment start date, optional end date — offboarding
-sets the end date rather than deleting the row, so past leave stays
-attributable) and leaves logged by the admin on a staff member's behalf,
-as a `[start_date, end_date]` period rather than one row per day.
-`staff/leave_summary.py` computes days-on-leave per staff for a selected
-month, **clipping a leave that spans a month boundary to the month being
-viewed** (so it's correctly split between two months' totals, not
-double-counted or misattributed), and highlights anyone with more than 2
-days that month in the UI.
+roster (name, **department/sub-department** — free text, e.g.
+"Operations" / "Logistics", suggested via a browser `<datalist>` of
+previously-used values rather than a hard-coded list — employment start
+date, optional end date — offboarding sets the end date rather than
+deleting the row, so past leave stays attributable) and leaves logged by
+the admin on a staff member's behalf, as a `[start_date, end_date]`
+period rather than one row per day. `staff/leave_summary.py` computes
+days-on-leave per staff for a selected month, **clipping a leave that
+spans a month boundary to the month being viewed** (so it's correctly
+split between two months' totals, not double-counted or misattributed),
+and highlights anyone with more than 2 days that month in the UI.
 
 ## Architecture (current pieces)
 

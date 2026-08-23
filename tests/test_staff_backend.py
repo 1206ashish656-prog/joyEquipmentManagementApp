@@ -148,3 +148,52 @@ def test_leave_summary_does_not_highlight_short_leave(client):
     resp = test_client.get("/staff?year=2026&month=8")
     assert resp.status_code == 200
     assert "Exceeds 2 days" not in resp.text
+
+
+# --- Department / sub-department mapping ---
+
+def test_create_staff_with_department_and_sub_department(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.post(
+        "/staff",
+        data={
+            "name": "Employee 1", "department": "Operations", "sub_department": "Logistics",
+            "employment_start_date": "2026-06-01",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    with SessionLocal() as session:
+        staff = session.execute(select(Staff).where(Staff.name == "Employee 1")).scalar_one()
+        assert staff.department == "Operations"
+        assert staff.sub_department == "Logistics"
+
+
+def test_create_staff_without_department_leaves_it_null(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _login(test_client, "admin@example.com")
+
+    test_client.post("/staff", data={"name": "Priya", "employment_start_date": "2026-06-01"})
+    with SessionLocal() as session:
+        staff = session.execute(select(Staff).where(Staff.name == "Priya")).scalar_one()
+        assert staff.department is None
+        assert staff.sub_department is None
+
+
+def test_department_and_sub_department_shown_in_roster(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _login(test_client, "admin@example.com")
+
+    test_client.post(
+        "/staff",
+        data={"name": "Employee 1", "department": "Operations", "sub_department": "Logistics", "employment_start_date": "2026-06-01"},
+    )
+    resp = test_client.get("/staff")
+    assert resp.status_code == 200
+    assert "Operations" in resp.text
+    assert "Logistics" in resp.text

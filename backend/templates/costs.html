@@ -59,6 +59,11 @@
         </select>
       </label>
     </div>
+    <div class="filter-group">
+      <span style="font-size:0.85rem;color:var(--muted);align-self:center;">Raw data:</span>
+      <label class="checkbox-label"><input type="radio" name="show_raw_data" value="yes" {% if show_raw_data %}checked{% endif %}> Show</label>
+      <label class="checkbox-label"><input type="radio" name="show_raw_data" value="no" {% if not show_raw_data %}checked{% endif %}> Hide</label>
+    </div>
     <button type="submit">Apply</button>
   </form>
   <table class="kv" style="margin-top:10px;">
@@ -108,6 +113,7 @@
   </table>
 </section>
 
+{% if show_raw_data %}
 <section>
   <h2>Raw Entries{% if raw_truncated %} <span style="font-weight:400;color:var(--muted);font-size:0.8em;">(showing most recent {{ raw_rows|length }} of {{ raw_total_count }} — narrow the filters above to see the rest)</span>{% endif %}</h2>
   <table class="equipment-table">
@@ -135,6 +141,7 @@
     </tbody>
   </table>
 </section>
+{% endif %}
 
 <section>
   <h2>Add Cost Entry</h2>

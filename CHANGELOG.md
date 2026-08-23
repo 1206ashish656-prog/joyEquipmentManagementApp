@@ -38,8 +38,19 @@ Also resolved the RBAC open question from 2.0.0: **operations staff do
 not see Order Summary at all**, confirmed — no code change needed, that
 was already how `require_venue_partner` was built.
 
+**Follow-up (same day):**
+- Staff gained `department`/`sub_department` (free text, e.g. "Operations"
+  / "Logistics") — shown in the roster, set on creation, suggested via a
+  `<datalist>` of previously-used values so spelling stays consistent
+  without a hard-coded list.
+- Cost Management's Raw Entries table is now **hidden by default** —
+  a "Raw data: Show / Hide" radio pair controls it explicitly, per
+  follow-up request ("should only be displayed if explicitly asked").
+  The category/vendor/item filters and rollup breakdown are unaffected
+  either way.
+
 See README's "Cost Management and Staff & Leave Management" section for
-the full picture. 192/192 tests passing.
+the full picture. 196/196 tests passing.
 
 ## [2.0.0] — 2026-08-24
 

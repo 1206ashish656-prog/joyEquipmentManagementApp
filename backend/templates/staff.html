@@ -43,11 +43,13 @@
 <section>
   <h2>Staff Roster</h2>
   <table class="equipment-table">
-    <thead><tr><th>Name</th><th>Employment Start</th><th>Employment End</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Department</th><th>Sub-department</th><th>Employment Start</th><th>Employment End</th><th></th></tr></thead>
     <tbody>
       {% for s in staff_list %}
       <tr>
         <td>{{ s.name }}</td>
+        <td>{{ s.department or "—" }}</td>
+        <td>{{ s.sub_department or "—" }}</td>
         <td>{{ s.employment_start_date }}</td>
         <td>{{ s.employment_end_date or "— active —" }}</td>
         <td>
@@ -60,7 +62,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="4">No staff added yet.</td></tr>
+      <tr><td colspan="6">No staff added yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -71,6 +73,18 @@
     <h2>Add Staff</h2>
     <form method="post" action="/staff" class="stacked-form">
       <label>Name<input type="text" name="name" required></label>
+      <label>Department <span style="font-weight:400;color:var(--muted);">(e.g. Operations)</span>
+        <input type="text" name="department" list="department-options">
+      </label>
+      <label>Sub-department <span style="font-weight:400;color:var(--muted);">(e.g. Logistics)</span>
+        <input type="text" name="sub_department" list="sub-department-options">
+      </label>
+      <datalist id="department-options">
+        {% for d in known_departments %}<option value="{{ d }}">{% endfor %}
+      </datalist>
+      <datalist id="sub-department-options">
+        {% for d in known_sub_departments %}<option value="{{ d }}">{% endfor %}
+      </datalist>
       <label>Employment start date<input type="date" name="employment_start_date" value="{{ today }}" required></label>
       <label>Employment end date (leave blank if still active)<input type="date" name="employment_end_date"></label>
       <button type="submit">Add Staff</button>

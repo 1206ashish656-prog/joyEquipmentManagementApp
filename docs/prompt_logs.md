@@ -156,3 +156,8 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 > - admin should be able to view raw data for selected item, category or vendor
 > - access to modify or delete historical data if seems inappropriate
 > - editable historical entires as well
+
+**25.**
+> Need to add couple of more changes to the current state of the application
+> 1) Add department and sub-department field mapping for each staff as well. For instance. employee 1 is mapped to Operations team and within that part of logistics only
+> 2) Raw data for cost across categories should only be displayed if explicitly asked by user. Add radio butto for user to select if they want to view raw data or not
