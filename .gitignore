@@ -1,0 +1,27 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+env/
+
+# Playwright / session artifacts (may contain cookies/session tokens)
+data/storage_state/*.json
+data/discovery_output/
+playwright-report/
+test-results/
+
+# Node (future frontend)
+node_modules/
+.next/
+
+# OS / editor
+.vscode/
+.idea/
+*.log
