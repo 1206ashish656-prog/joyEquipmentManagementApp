@@ -48,9 +48,16 @@
 {% endif %}
 
 <section>
-  <h2>Trend {{ "(by machine)" if by_machine else "(aggregated)" }}</h2>
-  <canvas id="ordersChart" height="90"></canvas>
+  <h2>Trend (aggregated)</h2>
+  <canvas id="aggregateChart" height="90"></canvas>
 </section>
+
+{% if machine_chart_json %}
+<section>
+  <h2>Trend (by machine)</h2>
+  <canvas id="machineChart" height="90"></canvas>
+</section>
+{% endif %}
 
 <section>
   <h2>Breakdown</h2>
@@ -82,26 +89,37 @@
 </section>
 
 <script>
-const chartData = {{ chart_data_json | safe }};
-const ctx = document.getElementById('ordersChart');
 const colors = ['#2563eb', '#16a34a', '#ca8a04', '#dc2626', '#7c3aed', '#0891b2', '#db2777'];
-new Chart(ctx, {
-  type: 'line',
-  data: {
-    labels: chartData.dates,
-    datasets: chartData.datasets.map((ds, i) => ({
-      label: ds.label,
-      data: ds.orders,
-      borderColor: colors[i % colors.length],
-      backgroundColor: colors[i % colors.length],
-      tension: 0.2,
-    })),
-  },
-  options: {
-    responsive: true,
-    plugins: { legend: { display: true }, title: { display: true, text: 'Orders per day' } },
-    scales: { y: { beginAtZero: true } },
-  },
-});
+
+function renderOrdersChart(canvasId, chartData, title) {
+  const ctx = document.getElementById(canvasId);
+  if (!ctx) return;
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: chartData.dates,
+      datasets: chartData.datasets.map((ds, i) => ({
+        label: ds.label,
+        data: ds.orders,
+        borderColor: colors[i % colors.length],
+        backgroundColor: colors[i % colors.length],
+        tension: 0.2,
+      })),
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: true }, title: { display: true, text: title } },
+      scales: { y: { beginAtZero: true } },
+    },
+  });
+}
+
+const aggregateChartData = {{ aggregate_chart_json | safe }};
+renderOrdersChart('aggregateChart', aggregateChartData, 'Orders per day (all machines)');
+
+{% if machine_chart_json %}
+const machineChartData = {{ machine_chart_json | safe }};
+renderOrdersChart('machineChart', machineChartData, 'Orders per day (by machine)');
+{% endif %}
 </script>
 {% endblock %}

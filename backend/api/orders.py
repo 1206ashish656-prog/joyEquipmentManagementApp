@@ -59,12 +59,16 @@ def _period_range(period: str, as_of: str) -> tuple[str, str]:
     return start.isoformat(), end.isoformat()
 
 
-def _chart_payload(rows: list[OrderSummary], by_machine: bool) -> dict:
-    group_by = ("date", "device_app") if by_machine else ("date",)
+def _time_series_payload(rows: list[OrderSummary], split_by_machine: bool) -> dict:
+    """A per-date time series, either as a single 'All machines' line or
+    one line per machine — used for BOTH the always-on aggregate chart
+    and the optional by-machine chart, so there's one implementation of
+    'turn rows into a Chart.js-shaped series', not two."""
+    group_by = ("date", "device_app") if split_by_machine else ("date",)
     chart_rows = rollup(rows, group_by=group_by)
 
     dates = sorted({r.key["date"] for r in chart_rows})
-    if by_machine:
+    if split_by_machine:
         machines = sorted({r.key["device_app"] for r in chart_rows})
         by_key = {(r.key["date"], r.key["device_app"]): r for r in chart_rows}
         datasets = [
@@ -121,7 +125,12 @@ def orders_summary(
     overall = rollup(rows, group_by=())
     overall_row = overall[0] if overall else None
 
-    chart_data = _chart_payload(rows, by_machine=by_machine)
+    # Always-on aggregate trend (requirement: "I want to see trend for
+    # aggregated orders over time as well" — independent of whatever
+    # breakdown is selected for the table below), plus an optional
+    # by-machine trend when that breakdown is selected.
+    aggregate_chart_data = _time_series_payload(rows, split_by_machine=False)
+    machine_chart_data = _time_series_payload(rows, split_by_machine=True) if by_machine else None
 
     return templates.TemplateResponse(
         request,
@@ -140,6 +149,7 @@ def orders_summary(
             "overall_row": overall_row,
             "latest_available_date": latest,
             "has_data": bool(rows),
-            "chart_data_json": json.dumps(chart_data, cls=_DecimalEncoder),
+            "aggregate_chart_json": json.dumps(aggregate_chart_data, cls=_DecimalEncoder),
+            "machine_chart_json": json.dumps(machine_chart_data, cls=_DecimalEncoder) if machine_chart_data else None,
         },
     )

@@ -133,5 +133,82 @@ def test_orders_summary_chart_data_embedded_as_json(client):
     _login(test_client)
 
     resp = test_client.get("/orders/summary?period=daily&as_of=2026-08-23")
-    assert "chartData" in resp.text
+    assert "aggregateChartData" in resp.text
     assert "2026-08-23" in resp.text
+
+
+def test_orders_summary_aggregate_chart_present_without_machine_breakdown(client):
+    """The aggregated trend chart is always rendered, even when the table
+    itself isn't broken down by machine — it's independent of the
+    breakdown checkboxes, per the 'trend for aggregated orders over time
+    as well' requirement."""
+    test_client, SessionLocal = client
+    _seed_user(SessionLocal)
+    _seed_order_summary(SessionLocal, "2026-08-23", "NEXUS", "120.00", "UPI", n=10)
+    _login(test_client)
+
+    resp = test_client.get("/orders/summary?period=daily&as_of=2026-08-23&by_machine=0")
+    assert resp.status_code == 200
+    assert "aggregateChartData" in resp.text
+    assert "machineChartData" not in resp.text
+
+
+def test_orders_summary_machine_chart_present_with_machine_breakdown(client):
+    test_client, SessionLocal = client
+    _seed_user(SessionLocal)
+    _seed_order_summary(SessionLocal, "2026-08-23", "NEXUS", "120.00", "UPI", n=10)
+    _seed_order_summary(SessionLocal, "2026-08-23", "Gravity", "120.00", "UPI", n=5)
+    _login(test_client)
+
+    resp = test_client.get("/orders/summary?period=daily&as_of=2026-08-23&by_machine=1")
+    assert resp.status_code == 200
+    assert "aggregateChartData" in resp.text
+    assert "machineChartData" in resp.text
+    assert "NEXUS" in resp.text
+
+
+def test_orders_summary_breakdown_by_price_only(client):
+    test_client, SessionLocal = client
+    _seed_user(SessionLocal)
+    _seed_order_summary(SessionLocal, "2026-08-23", "NEXUS", "120.00", "UPI", n=10)
+    _seed_order_summary(SessionLocal, "2026-08-23", "Gravity", "150.00", "UPI", n=5)
+    _login(test_client)
+
+    resp = test_client.get("/orders/summary?period=daily&as_of=2026-08-23&by_machine=0&by_price=1")
+    assert resp.status_code == 200
+    # two distinct prices should each get their own row; machine column absent
+    assert "120.00" in resp.text
+    assert "150.00" in resp.text
+    assert "NEXUS" not in resp.text
+
+
+def test_orders_summary_breakdown_by_pay_type_only(client):
+    test_client, SessionLocal = client
+    _seed_user(SessionLocal)
+    _seed_order_summary(SessionLocal, "2026-08-23", "NEXUS", "120.00", "UPI", n=10)
+    _seed_order_summary(SessionLocal, "2026-08-23", "NEXUS", "120.00", "Cash", n=4)
+    _login(test_client)
+
+    resp = test_client.get("/orders/summary?period=daily&as_of=2026-08-23&by_machine=0&by_pay_type=1")
+    assert resp.status_code == 200
+    assert "UPI" in resp.text
+    assert "Cash" in resp.text
+    assert "NEXUS" not in resp.text
+
+
+def test_orders_summary_breakdown_by_price_and_pay_type_without_machine(client):
+    test_client, SessionLocal = client
+    _seed_user(SessionLocal)
+    _seed_order_summary(SessionLocal, "2026-08-23", "NEXUS", "120.00", "UPI", n=10)
+    _seed_order_summary(SessionLocal, "2026-08-23", "Gravity", "120.00", "Cash", n=3)
+    _login(test_client)
+
+    resp = test_client.get(
+        "/orders/summary?period=daily&as_of=2026-08-23&by_machine=0&by_price=1&by_pay_type=1"
+    )
+    assert resp.status_code == 200
+    assert "120.00" in resp.text
+    assert "UPI" in resp.text
+    assert "Cash" in resp.text
+    # both machines' orders (10 + 3) should be merged into price/pay_type rows, not shown by name
+    assert "NEXUS" not in resp.text
