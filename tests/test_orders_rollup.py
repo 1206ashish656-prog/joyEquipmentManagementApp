@@ -110,3 +110,54 @@ def test_unknown_dimension_raises():
 
 def test_empty_rows_returns_empty_list():
     assert rollup([], group_by=("device_app",)) == []
+
+
+# --- Admin-only derived metrics: revenue and oranges/glass ---
+# (each order == one glass of juice, per the existing number_of_orders
+# field; see backend/templates/order_summary.html for the admin-only
+# visibility gating -- these are always computed here, just not always
+# rendered.)
+
+def test_revenue_is_orders_times_average_price():
+    # Gravity: 5 orders @ 100.00 -> revenue 500.00
+    result = rollup(_rows(), group_by=("device_app",))
+    gravity = next(r for r in result if r.key["device_app"] == "Gravity")
+    assert gravity.revenue == Decimal("500.00")
+
+
+def test_revenue_uses_weighted_average_price_when_combined():
+    # NEXUS on 2026-08-23: 3 @ 120.00 + 2 @ 150.00 -> avg price 132.00,
+    # 5 orders -> revenue 660.00 (== 3*120 + 2*150, not average*5 by
+    # coincidence -- confirming the two ways of computing it agree).
+    rows = [r for r in _rows() if r.date == "2026-08-23" and r.device_app == "NEXUS"]
+    result = rollup(rows, group_by=("device_app",))
+    r = result[0]
+    assert r.revenue == Decimal("660.00")
+    assert r.revenue == r.number_of_orders * r.average_price
+
+
+def test_oranges_per_glass():
+    # Gravity: 10 oranges / 5 orders = 2.00 oranges per glass
+    result = rollup(_rows(), group_by=("device_app",))
+    gravity = next(r for r in result if r.key["device_app"] == "Gravity")
+    assert gravity.oranges_per_glass == Decimal("2.00")
+
+
+def test_oranges_per_glass_rounds_to_two_places():
+    # Full aggregate across all rows: (9+6+10+12) oranges / (3+2+5+4)
+    # orders = 37/14 = 2.642857... -> rounds to 2.64 (confirms rounding,
+    # not just exact division, and that it works with group_by=()).
+    result = rollup(_rows(), group_by=())
+    assert result[0].oranges_per_glass == Decimal("2.64")
+
+
+def test_oranges_per_glass_zero_orders_does_not_divide_by_zero():
+    assert rollup([], group_by=("device_app",)) == []
+    # A bucket can't have zero orders in practice (every row contributes
+    # >=1), but the property itself must still be safe to call on a
+    # zero-order row without raising.
+    from orders.rollup import RollupRow
+    empty = RollupRow(key={}, number_of_orders=0, average_price=Decimal("0.00"),
+                       total_number_of_oranges=0, average_juice_weight=Decimal("0.00"))
+    assert empty.oranges_per_glass == Decimal("0.00")
+    assert empty.revenue == Decimal("0.00")

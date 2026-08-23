@@ -28,6 +28,22 @@ class RollupRow:
     total_number_of_oranges: int
     average_juice_weight: Decimal
 
+    @property
+    def revenue(self) -> Decimal:
+        """number_of_orders (one glass per order) x average_price.
+        Admin-only in the UI (backend/api/orders.py /
+        order_summary.html) — a pure derived value, not stored, so it's
+        always consistent with whatever grouping produced this row."""
+        return _round2(Decimal(self.number_of_orders) * self.average_price)
+
+    @property
+    def oranges_per_glass(self) -> Decimal:
+        """total_number_of_oranges / number_of_orders. Admin-only in the
+        UI, same rationale as revenue above."""
+        if self.number_of_orders == 0:
+            return Decimal("0.00")
+        return _round2(Decimal(self.total_number_of_oranges) / self.number_of_orders)
+
 
 def _round2(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

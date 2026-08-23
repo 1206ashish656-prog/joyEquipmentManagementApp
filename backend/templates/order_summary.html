@@ -46,11 +46,15 @@
 </section>
 
 {% if overall_row %}
-<section class="counts" style="grid-template-columns: repeat(4, 1fr);">
+<section class="counts" style="grid-template-columns: repeat({{ 6 if user.role == 'admin' else 4 }}, 1fr);">
   <div class="count-tile"><div class="n">{{ overall_row.number_of_orders }}</div><div class="label">Total Orders</div></div>
   <div class="count-tile"><div class="n">₹{{ "%.2f"|format(overall_row.average_price) }}</div><div class="label">Avg Price</div></div>
   <div class="count-tile"><div class="n">{{ overall_row.total_number_of_oranges }}</div><div class="label">Total Oranges</div></div>
   <div class="count-tile"><div class="n">{{ "%.2f"|format(overall_row.average_juice_weight) }}</div><div class="label">Avg Juice Weight</div></div>
+  {% if user.role == "admin" %}
+  <div class="count-tile"><div class="n">₹{{ "%.2f"|format(overall_row.revenue) }}</div><div class="label">Revenue</div></div>
+  <div class="count-tile"><div class="n">{{ "%.2f"|format(overall_row.oranges_per_glass) }}</div><div class="label">Oranges/Glass</div></div>
+  {% endif %}
 </section>
 {% endif %}
 
@@ -75,6 +79,7 @@
         {% if by_price %}<th>Price</th>{% endif %}
         {% if by_pay_type %}<th>Pay Type</th>{% endif %}
         <th>Orders</th><th>Avg Price</th><th>Total Oranges</th><th>Avg Juice Weight</th>
+        {% if user.role == "admin" %}<th>Revenue</th><th>Oranges/Glass</th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -87,9 +92,13 @@
         <td>{{ "%.2f"|format(row.average_price) }}</td>
         <td>{{ row.total_number_of_oranges }}</td>
         <td>{{ "%.2f"|format(row.average_juice_weight) }}</td>
+        {% if user.role == "admin" %}
+        <td>₹{{ "%.2f"|format(row.revenue) }}</td>
+        <td>{{ "%.2f"|format(row.oranges_per_glass) }}</td>
+        {% endif %}
       </tr>
       {% else %}
-      <tr><td colspan="7">No qualifying orders in this period.</td></tr>
+      <tr><td colspan="{{ 9 if user.role == 'admin' else 7 }}">No qualifying orders in this period.</td></tr>
       {% endfor %}
     </tbody>
   </table>

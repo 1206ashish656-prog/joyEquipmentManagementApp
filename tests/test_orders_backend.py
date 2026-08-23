@@ -212,3 +212,42 @@ def test_orders_summary_breakdown_by_price_and_pay_type_without_machine(client):
     assert "Cash" in resp.text
     # both machines' orders (10 + 3) should be merged into price/pay_type rows, not shown by name
     assert "NEXUS" not in resp.text
+
+
+# --- Admin-only Revenue / Oranges-per-Glass columns ---
+
+def test_admin_sees_revenue_and_oranges_per_glass(client):
+    test_client, SessionLocal = client
+    _seed_user(SessionLocal)
+    # 10 orders @ 120.00 -> revenue 1200.00; 25 oranges / 10 orders = 2.50/glass
+    _seed_order_summary(SessionLocal, "2026-08-23", "NEXUS", "120.00", "UPI", n=10, oranges=25)
+    _login(test_client)
+
+    resp = test_client.get("/orders/summary?period=daily&as_of=2026-08-23")
+    assert resp.status_code == 200
+    assert "Revenue" in resp.text
+    assert "Oranges/Glass" in resp.text
+    assert "1200.00" in resp.text
+    assert "2.50" in resp.text
+
+
+def test_venue_partner_does_not_see_revenue_or_oranges_per_glass(client):
+    test_client, SessionLocal = client
+    with SessionLocal() as session:
+        from db.models import VenueMapping
+        session.add(VenueMapping(machine_name="NEXUS", venue_provider="Forum Kormangala"))
+        session.add(User(
+            name="Venue", email="venue@example.com", role="venue_partner", venue_provider="Forum Kormangala",
+            active=True, password_hash=hash_password("pw123456"),
+        ))
+        session.commit()
+    _seed_order_summary(SessionLocal, "2026-08-23", "NEXUS", "120.00", "UPI", n=10, oranges=25)
+    _login(test_client, "venue@example.com", "pw123456")
+
+    resp = test_client.get("/orders/summary?period=daily&as_of=2026-08-23")
+    assert resp.status_code == 200
+    assert "Revenue" not in resp.text
+    assert "Oranges/Glass" not in resp.text
+    # the venue partner still sees their own underlying numbers, just not
+    # the two derived admin-only metrics.
+    assert "NEXUS" in resp.text or "10" in resp.text
