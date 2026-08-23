@@ -56,6 +56,17 @@ class Settings:
     db_user: str
     db_password: str
 
+    smtp_host: str
+    smtp_port: int
+    smtp_username: str
+    smtp_password: str
+    smtp_from_email: str
+    smtp_use_tls: bool
+    alert_on_escalation: bool
+    send_recovery_notifications: bool
+
+    web_secret_key: str
+
     @property
     def has_credentials(self) -> bool:
         return bool(self.target_username and self.target_password)
@@ -66,6 +77,10 @@ class Settings:
             f"postgresql+psycopg2://{self.db_user}:{self.db_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
         )
+
+    @property
+    def smtp_configured(self) -> bool:
+        return bool(self.smtp_host)
 
 
 def load_settings() -> Settings:
@@ -89,6 +104,15 @@ def load_settings() -> Settings:
         db_name=os.getenv("DB_NAME", "equipment_monitor").strip(),
         db_user=os.getenv("DB_USER", "equipment_monitor").strip(),
         db_password=os.getenv("DB_PASSWORD", "").strip(),
+        smtp_host=os.getenv("SMTP_HOST", "").strip(),
+        smtp_port=_get_int("SMTP_PORT", 587),
+        smtp_username=os.getenv("SMTP_USERNAME", "").strip(),
+        smtp_password=os.getenv("SMTP_PASSWORD", "").strip(),
+        smtp_from_email=os.getenv("SMTP_FROM_EMAIL", "").strip(),
+        smtp_use_tls=_get_bool("SMTP_USE_TLS", True),
+        alert_on_escalation=_get_bool("ALERT_ON_ESCALATION", True),
+        send_recovery_notifications=_get_bool("SEND_RECOVERY_NOTIFICATIONS", True),
+        web_secret_key=os.getenv("WEB_SECRET_KEY", "").strip(),
     )
 
 
