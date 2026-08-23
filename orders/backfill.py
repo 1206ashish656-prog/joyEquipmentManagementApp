@@ -1,12 +1,12 @@
 """
-Orders daily-summary backfill: for each date in a range, reuse the cached
-CSV row if present, otherwise fetch that day's orders from the target,
-compute the summary, and append it — sequentially, day by day (never in
-parallel; the target site gets one date's worth of requests at a time).
+Orders daily-summary backfill: for each date in a range, reuse the stored
+DB row if that date was already processed successfully, otherwise fetch
+that day's orders from the target, compute the (machine, price, pay_type)
+groups, and store them — sequentially, day by day (never in parallel; the
+target site gets one date's worth of requests at a time).
 
-This is the SAME code path whether run for one day (Phase 1 — the current
-"extract data for 1 day and verify the numbers" step) or a full historical
-range later: the range just happens to be a single day for now.
+This is the SAME code path whether run for one day or a full historical
+range — the range just happens to be a single day when verifying.
 
 Run:
     python -m orders.backfill --date 2026-08-23
@@ -18,19 +18,17 @@ import argparse
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from pathlib import Path
 
-from monitoring.config import PROJECT_ROOT, load_settings
+from db import base as db_base
+from monitoring.config import load_settings
 from monitoring.models import MonitoringError
 
-from .cache import append_summary_rows, load_cached_dates
 from .client import OrdersClient
-from .summary import ALL_DEVICES_LABEL, compute_daily_summary
+from .store import get_cached_dates, mark_day_failed, save_day
+from .summary import compute_daily_groups
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("orders.backfill")
-
-DEFAULT_CSV_PATH = PROJECT_ROOT / "data" / "order_summaries" / "daily_summary.csv"
 
 
 def _date_range(start: str, end: str) -> list[str]:
@@ -42,45 +40,51 @@ def _date_range(start: str, end: str) -> list[str]:
     return [(d0 + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days + 1)]
 
 
-async def run_backfill(start: str, end: str, csv_path: Path = DEFAULT_CSV_PATH, force: bool = False) -> None:
+async def run_backfill(start: str, end: str, force: bool = False) -> None:
     settings = load_settings()
-    cached_dates = set() if force else load_cached_dates(csv_path)
-    dates = _date_range(start, end)
+    db_base.init_engine(settings)
+    db_base.create_all()
 
+    dates = _date_range(start, end)
     client = OrdersClient(settings)
     try:
         for date in dates:
-            if date in cached_dates:
-                logger.info("%s: already cached — skipping fetch", date)
-                continue
+            with db_base.get_session() as db_session:
+                cached_dates = set() if force else get_cached_dates(db_session)
+                if date in cached_dates:
+                    logger.info("%s: already processed — skipping fetch", date)
+                    continue
 
             logger.info("%s: fetching orders from target...", date)
             try:
                 records = await client.fetch_day(date)
             except MonitoringError as e:
-                # A fetch failure for one day must not corrupt/skip other
-                # days, and must never be recorded as "zero orders" — that
-                # would silently fabricate a business number. Log and move
-                # on; the date stays uncached and will be retried next run.
-                logger.error("%s: fetch failed (%s) — leaving uncached, continuing to next date", date, e)
+                # A fetch failure for one day must not corrupt/block other
+                # days, and must never be recorded as a fabricated "zero
+                # orders" success — it's recorded as FAILED so it's
+                # visibly distinct from a genuine quiet day, and retried
+                # on the next run.
+                logger.error("%s: fetch failed (%s) — recording FAILED, continuing to next date", date, e)
+                with db_base.get_session() as db_session:
+                    mark_day_failed(db_session, date, str(e))
                 continue
 
-            rows = compute_daily_summary(date, records)
-            append_summary_rows(csv_path, rows)
+            groups = compute_daily_groups(date, records)
 
-            all_row = next(r for r in rows if r.device_app == ALL_DEVICES_LABEL)
+            with db_base.get_session() as db_session:
+                save_day(db_session, date, groups, raw_orders_fetched=len(records))
+
+            qualifying = sum(g.number_of_orders for g in groups)
             logger.info(
-                "%s: %d raw orders fetched, %d qualifying (Completed+Success) -> "
-                "avg_price=%s total_oranges=%s avg_juice_weight=%s",
-                date, len(records), all_row.number_of_orders,
-                all_row.average_price, all_row.total_number_of_oranges, all_row.average_juice_weight,
+                "%s: %d raw orders fetched, %d qualifying (Completed+Success), %d (machine,price,pay_type) groups",
+                date, len(records), qualifying, len(groups),
             )
-            print(f"\n=== {date} summary ===")
-            for row in rows:
+            print(f"\n=== {date} — {len(groups)} group(s) ===")
+            for g in groups:
                 print(
-                    f"  {row.device_app:<10} orders={row.number_of_orders:<5} "
-                    f"avg_price={row.average_price:<10} total_oranges={row.total_number_of_oranges:<6} "
-                    f"avg_juice_weight={row.average_juice_weight}"
+                    f"  {g.device_app:<10} price={g.price:<10} pay_type={g.pay_type:<6} "
+                    f"orders={g.number_of_orders:<5} total_oranges={g.total_number_of_oranges:<6} "
+                    f"avg_juice_weight={g.average_juice_weight}"
                 )
     finally:
         await client.close()
@@ -91,8 +95,7 @@ def main() -> None:
     parser.add_argument("--date", help="Single date YYYY-MM-DD (shorthand for --start/--end the same day)")
     parser.add_argument("--start", help="Start date YYYY-MM-DD")
     parser.add_argument("--end", help="End date YYYY-MM-DD")
-    parser.add_argument("--force", action="store_true", help="Re-fetch even if a date is already cached")
-    parser.add_argument("--csv", default=str(DEFAULT_CSV_PATH), help="Path to the summary CSV")
+    parser.add_argument("--force", action="store_true", help="Re-fetch even if a date is already processed")
     args = parser.parse_args()
 
     if args.date:
@@ -103,7 +106,7 @@ def main() -> None:
         parser.error("Provide either --date, or both --start and --end")
         return
 
-    asyncio.run(run_backfill(start, end, csv_path=Path(args.csv), force=args.force))
+    asyncio.run(run_backfill(start, end, force=args.force))
 
 
 if __name__ == "__main__":

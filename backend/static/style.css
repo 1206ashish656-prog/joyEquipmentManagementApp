@@ -98,3 +98,18 @@ form.stacked-form button, .login-box button {
   font: inherit; cursor: pointer; width: fit-content;
 }
 form.stacked-form button:hover, .login-box button:hover { opacity: 0.9; }
+
+form.order-filter-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 20px; }
+form.order-filter-form .filter-group { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+form.order-filter-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--muted); }
+form.order-filter-form .checkbox-label { flex-direction: row; align-items: center; gap: 6px; font-size: 0.9rem; }
+form.order-filter-form input, form.order-filter-form select {
+  padding: 7px 9px; border: 1px solid var(--border); border-radius: 6px; font: inherit;
+}
+form.order-filter-form button {
+  padding: 9px 16px; border: none; border-radius: 6px; background: var(--brand); color: white;
+  font: inherit; cursor: pointer; height: fit-content;
+}
+form.order-filter-form button:hover { opacity: 0.9; }
+
+.callout { border-left: 4px solid var(--brand); background: var(--panel); padding: 10px 14px; margin: 12px 0; border-radius: 0 6px 6px 0; }

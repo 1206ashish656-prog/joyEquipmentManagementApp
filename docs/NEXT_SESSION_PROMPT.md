@@ -36,29 +36,37 @@ screenshots, tool appendix) also exists:
 | 5 — Web dashboard | Built, live-verified with real HTTP traffic |
 | 6 — Production hardening | **Not started** |
 
-90 automated tests pass (`pytest tests/ --ignore=tests/tc_001_target_connection`).
+112 automated tests pass (`pytest tests/ --ignore=tests/tc_001_target_connection`).
 
-**New, independent feature (2026-08-24): daily order summary.** Separate
-`orders/` package (doesn't touch `monitoring/`/`services/`/`db/`) that
-fetches Order Management → Order Information (a section the *original*
-spec listed as a non-goal — now in scope by explicit request), filters to
-`order_status=Completed AND delivery_status=Success`, and computes
-aggregate + machine-wise daily summaries (orders, avg price, total
-oranges, avg juice weight) into a CSV cache
-(`data/order_summaries/daily_summary.csv`, git-ignored — real business
-data) that skips already-computed dates. **Verified for exactly one day
-so far (2026-08-23: 310 raw → 249 qualifying orders) — not yet
+**New, independent feature: order summary.** Separate `orders/` package
+(touches `db/models.py` for two new tables, but nothing in
+`monitoring/`/`services/`) that fetches Order Management → Order
+Information (a section the *original* spec listed as a non-goal — now in
+scope by explicit request), filters to `order_status=Completed AND
+delivery_status=Success`, and stores results at the finest grain needed:
+one row per `(date, device_app, price, pay_type)` — redefined from an
+initial CSV/coarser-grain v1 after user feedback (mid-day price changes
+must produce separate rows, not a blended average; also moved storage
+straight from the originally-planned CSV to the DB, since the UI's
+flexible period/breakdown views can't be done cleanly against a flat
+file). Every other view (aggregate, machine-wise, price-wise,
+pay-type-wise, any combination) is a rollup computed at query time
+(`orders/rollup.py`), not separately stored. New dashboard tab at
+`/orders/summary` (period selector: Daily/Weekly/Monthly/YTD, breakdown
+checkboxes, Chart.js line chart via CDN — no build step added). **Verified
+live end to end for exactly one day so far** (2026-08-23: 310 raw → 249
+qualifying orders, 3 groups since no price change that day), including
+the actual rendered dashboard page, not just the CLI/DB — **not yet
 independently cross-checked against the target app's own UI, and not yet
-backfilled across history (32,049 total orders exist ≈ 100+ days).** A
+backfilled across history** (32,049 total orders exist ≈ 100+ days). A
 real, previously-unknown detail surfaced building this: the target's
 `createtime` date-range filter uses **UTC+8 day boundaries**, confirmed
 live, not UTC/IST/local time — see
-`docs/target_application_integration_spec.md`. Next steps for this
-feature: get the user's sign-off on the one verified day, then run the
-full historical backfill (`python -m orders.backfill --start <earliest>
---end <today>`) — sequential, will take a while at ~1 request per ~100
-orders — then eventually the CSV→database migration the user already
-flagged as a later step.
+`docs/target_application_integration_spec.md`. Next steps: get the user's
+sign-off on the one verified day (including cross-checking the mid-day
+price-change grouping once a real example occurs), then the full
+historical backfill (`python -m orders.backfill --start <earliest> --end
+<today>`) — sequential, will take a while at ~1 request per ~100 orders.
 
 ## Critical context — do not relearn these the hard way
 

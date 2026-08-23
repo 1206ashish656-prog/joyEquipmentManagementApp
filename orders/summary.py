@@ -1,12 +1,17 @@
 """
-Computes the daily order summary — aggregated ("ALL") and machine-wise
-("device_app") rows — from a day's fetched OrderRecords.
+Groups a day's filtered orders into (device_app, price, pay_type) groups
+— the finest grain this feature stores (see db/models.py's OrderSummary
+docstring for why: every rollup view is computed from these at query
+time, in orders/rollup.py, rather than pre-computing every possible view).
 
-Filter (confirmed with the user 2026-08-24): only orders where
-order_status == "Completed" AND delivery_status == "Success" count toward
-the numbers below. This mirrors the rest of the codebase's rule: a
-summary is computed from explicit, filtered data — never silently
-padded/guessed.
+Filter (confirmed with the user): only orders where
+order_status == "Completed" AND delivery_status == "Success" count.
+
+If price changes mid-day on the same machine, that produces two separate
+groups for that machine (one per price) — this is the explicit behavior
+requested, not a bug: "if there are 3 machines active and price was
+altered mid-day then I expect 2 separate entries per machine, one for
+each price."
 """
 from __future__ import annotations
 
@@ -16,15 +21,14 @@ from decimal import ROUND_HALF_UP, Decimal
 from .mapping import OrderRecord
 from .selectors import SUMMARY_FILTER
 
-ALL_DEVICES_LABEL = "ALL"
-
 
 @dataclass
-class SummaryRow:
+class GroupSummary:
     date: str
     device_app: str
+    price: Decimal
+    pay_type: str
     number_of_orders: int
-    average_price: Decimal
     total_number_of_oranges: int
     average_juice_weight: Decimal
 
@@ -40,40 +44,33 @@ def _round2(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-def _summarize_group(date: str, device_app: str, orders: list[OrderRecord]) -> SummaryRow:
-    n = len(orders)
-    total_price = sum((o.order_money for o in orders), Decimal("0"))
-    total_oranges = sum(o.orange_num for o in orders)
-    total_juice_weight = sum((o.orange_weight for o in orders), Decimal("0"))
-
-    return SummaryRow(
-        date=date,
-        device_app=device_app,
-        number_of_orders=n,
-        average_price=_round2(total_price / n) if n else Decimal("0.00"),
-        total_number_of_oranges=total_oranges,
-        average_juice_weight=_round2(total_juice_weight / n) if n else Decimal("0.00"),
-    )
-
-
-def compute_daily_summary(date: str, orders: list[OrderRecord]) -> list[SummaryRow]:
-    """Returns one aggregate row (device_app='ALL') plus one row per
-    device_app, all computed only from orders passing the summary filter.
-    An empty (but non-error) result for a day with genuinely zero
-    qualifying orders still produces an 'ALL' row with number_of_orders=0
-    — this is a legitimate business outcome (a quiet day), not a
-    validation failure; that distinction matters (see project principle:
-    absence of *data* is an error, absence of *qualifying orders* on a day
-    that clearly returned real rows is not)."""
+def compute_daily_groups(date: str, orders: list[OrderRecord]) -> list[GroupSummary]:
+    """Returns one GroupSummary per distinct (device_app, price, pay_type)
+    combination present among the day's qualifying orders. A day with zero
+    qualifying orders returns an empty list — that's a legitimate "quiet
+    day" outcome (see OrderSummaryRun, which records that this date WAS
+    processed even when this list is empty), not a validation failure."""
     filtered = [o for o in orders if passes_summary_filter(o)]
 
-    rows = [_summarize_group(date, ALL_DEVICES_LABEL, filtered)]
-
-    by_device: dict[str, list[OrderRecord]] = {}
+    groups: dict[tuple[str, Decimal, str], list[OrderRecord]] = {}
     for o in filtered:
-        by_device.setdefault(o.device_app, []).append(o)
+        key = (o.device_app, o.order_money, o.pay_type)
+        groups.setdefault(key, []).append(o)
 
-    for device_app in sorted(by_device):
-        rows.append(_summarize_group(date, device_app, by_device[device_app]))
-
-    return rows
+    result = []
+    for (device_app, price, pay_type), group_orders in sorted(groups.items(), key=lambda kv: kv[0]):
+        n = len(group_orders)
+        total_oranges = sum(o.orange_num for o in group_orders)
+        total_juice_weight = sum((o.orange_weight for o in group_orders), Decimal("0"))
+        result.append(
+            GroupSummary(
+                date=date,
+                device_app=device_app,
+                price=price,
+                pay_type=pay_type,
+                number_of_orders=n,
+                total_number_of_oranges=total_oranges,
+                average_juice_weight=_round2(total_juice_weight / n) if n else Decimal("0.00"),
+            )
+        )
+    return result

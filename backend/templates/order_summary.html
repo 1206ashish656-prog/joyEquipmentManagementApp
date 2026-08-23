@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Order Summary — Equipment Monitor{% endblock %}
+{% block head_extra %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>{% endblock %}
+{% block content %}
+<h1>Order Summary</h1>
+
+{% if not has_data %}
+<div class="callout">No order data cached for {{ start }} — {{ end }} yet. Run
+  <code>python -m orders.backfill --date {{ as_of }}</code> (or a range) to populate it.</div>
+{% endif %}
+
+<section class="status-panel">
+  <form method="get" action="/orders/summary" class="order-filter-form">
+    <div class="filter-group">
+      <label>Period
+        <select name="period">
+          {% for p in ["daily", "weekly", "monthly", "ytd"] %}
+          <option value="{{ p }}" {% if p == period %}selected{% endif %}>{{ p|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>As of
+        <input type="date" name="as_of" value="{{ as_of }}">
+      </label>
+    </div>
+    <div class="filter-group">
+      <label class="checkbox-label"><input type="checkbox" name="by_machine" value="1" {% if by_machine %}checked{% endif %}> Break down by machine</label>
+      <label class="checkbox-label"><input type="checkbox" name="by_price" value="1" {% if by_price %}checked{% endif %}> Break down by price</label>
+      <label class="checkbox-label"><input type="checkbox" name="by_pay_type" value="1" {% if by_pay_type %}checked{% endif %}> Break down by pay type</label>
+      {% if not by_machine %}<input type="hidden" name="by_machine" value="0">{% endif %}
+    </div>
+    <button type="submit">Apply</button>
+  </form>
+  <table class="kv" style="margin-top:10px;">
+    <tr><td>Date range</td><td>{{ start }}{% if end != start %} to {{ end }}{% endif %}</td></tr>
+    <tr><td>Latest data available</td><td>{{ latest_available_date or "—" }}</td></tr>
+    <tr><td>Breakdown</td><td>{{ group_by_labels|join(", ") }}</td></tr>
+  </table>
+</section>
+
+{% if overall_row %}
+<section class="counts" style="grid-template-columns: repeat(4, 1fr);">
+  <div class="count-tile"><div class="n">{{ overall_row.number_of_orders }}</div><div class="label">Total Orders</div></div>
+  <div class="count-tile"><div class="n">₹{{ "%.2f"|format(overall_row.average_price) }}</div><div class="label">Avg Price</div></div>
+  <div class="count-tile"><div class="n">{{ overall_row.total_number_of_oranges }}</div><div class="label">Total Oranges</div></div>
+  <div class="count-tile"><div class="n">{{ "%.2f"|format(overall_row.average_juice_weight) }}</div><div class="label">Avg Juice Weight</div></div>
+</section>
+{% endif %}
+
+<section>
+  <h2>Trend {{ "(by machine)" if by_machine else "(aggregated)" }}</h2>
+  <canvas id="ordersChart" height="90"></canvas>
+</section>
+
+<section>
+  <h2>Breakdown</h2>
+  <table class="equipment-table">
+    <thead>
+      <tr>
+        {% if by_machine %}<th>Machine</th>{% endif %}
+        {% if by_price %}<th>Price</th>{% endif %}
+        {% if by_pay_type %}<th>Pay Type</th>{% endif %}
+        <th>Orders</th><th>Avg Price</th><th>Total Oranges</th><th>Avg Juice Weight</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in table_rows %}
+      <tr>
+        {% if by_machine %}<td>{{ row.key.device_app }}</td>{% endif %}
+        {% if by_price %}<td>{{ "%.2f"|format(row.key.price) }}</td>{% endif %}
+        {% if by_pay_type %}<td>{{ row.key.pay_type }}</td>{% endif %}
+        <td>{{ row.number_of_orders }}</td>
+        <td>{{ "%.2f"|format(row.average_price) }}</td>
+        <td>{{ row.total_number_of_oranges }}</td>
+        <td>{{ "%.2f"|format(row.average_juice_weight) }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7">No qualifying orders in this period.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<script>
+const chartData = {{ chart_data_json | safe }};
+const ctx = document.getElementById('ordersChart');
+const colors = ['#2563eb', '#16a34a', '#ca8a04', '#dc2626', '#7c3aed', '#0891b2', '#db2777'];
+new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels: chartData.dates,
+    datasets: chartData.datasets.map((ds, i) => ({
+      label: ds.label,
+      data: ds.orders,
+      borderColor: colors[i % colors.length],
+      backgroundColor: colors[i % colors.length],
+      tension: 0.2,
+    })),
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: true }, title: { display: true, text: 'Orders per day' } },
+    scales: { y: { beginAtZero: true } },
+  },
+});
+</script>
+{% endblock %}

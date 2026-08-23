@@ -16,13 +16,16 @@ from __future__ import annotations
 
 import enum
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -201,3 +204,62 @@ class MonitoringRun(Base):
     records_found: Mapped[int | None] = mapped_column(Integer, nullable=True)
     records_processed: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# --- Order summary (orders/ package — independent feature, see README) ---
+#
+# Stored at the FINEST grain the feature needs: one row per
+# (date, device_app, price, pay_type) group. Every UI view (aggregated,
+# machine-wise, price-wise, pay-type-wise, or any combination) is a
+# rollup computed from these rows at query time (orders/rollup.py) —
+# nothing coarser is stored, so no view is ever "missing" because it
+# wasn't pre-computed. Within one group, price is constant by
+# definition (that's the grouping key), so `price` is an exact value,
+# not an average; rollups across multiple price groups compute a proper
+# orders-weighted average.
+
+
+class OrderSummaryRunStatus(str, enum.Enum):
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+
+
+_order_summary_run_status_type = Enum(
+    OrderSummaryRunStatus, name="order_summary_run_status", native_enum=False, length=16
+)
+
+
+class OrderSummaryRun(Base):
+    """One row per processed date — the definitive "is this date done"
+    marker (mirrors MonitoringRun's role for the equipment poller). A
+    date with genuinely zero qualifying orders still gets a SUCCESS row
+    here with qualifying_orders=0, so it's never silently re-fetched
+    forever, and is distinguishable from a date that failed to fetch."""
+
+    __tablename__ = "order_summary_run"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    date: Mapped[str] = mapped_column(String(10), unique=True, index=True)  # 'YYYY-MM-DD', target's UTC+8 calendar day
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[OrderSummaryRunStatus] = mapped_column(_order_summary_run_status_type)
+    raw_orders_fetched: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    qualifying_orders: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class OrderSummary(Base):
+    __tablename__ = "order_summary"
+    __table_args__ = (
+        UniqueConstraint("date", "device_app", "price", "pay_type", name="uq_order_summary_group"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    date: Mapped[str] = mapped_column(String(10), index=True)  # 'YYYY-MM-DD', target's UTC+8 calendar day
+    device_app: Mapped[str] = mapped_column(String(128), index=True)  # equipment name, e.g. "NEXUS"
+    price: Mapped[Decimal] = mapped_column(Numeric(10, 2))  # exact order price for this group
+    pay_type: Mapped[str] = mapped_column(String(32))  # e.g. "UPI"
+    number_of_orders: Mapped[int] = mapped_column(Integer)
+    total_number_of_oranges: Mapped[int] = mapped_column(Integer)
+    average_juice_weight: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

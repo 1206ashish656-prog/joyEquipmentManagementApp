@@ -83,7 +83,7 @@ section for the full story.
 
 This dev environment has neither Docker/Postgres nor SMTP credentials
 available. Everything DB- and email-touching is written against the real
-`postgresql+psycopg2` driver / real `smtplib`, and verified via **90
+`postgresql+psycopg2` driver / real `smtplib`, and verified via **112
 passing unit/integration tests** (SQLite in place of Postgres, mocked
 `smtplib`) — including one **live** run: a real `uvicorn` server + a real
 `monitoring.worker --loop` process, both pointed at a local SQLite file
@@ -226,7 +226,7 @@ DATABASE_URL="sqlite:///data/demo.db" uvicorn backend.main:app --host 127.0.0.1 
 ### Tests
 
 ```bash
-pytest tests/ --ignore=tests/tc_001_target_connection -v   # 90 unit/integration tests, no live site/DB/SMTP needed
+pytest tests/ --ignore=tests/tc_001_target_connection -v   # 112 unit/integration tests, no live site/DB/SMTP needed
 python -m tests.tc_001_target_connection.run                # live smoke test against the real target
 ```
 
@@ -241,39 +241,61 @@ changes enough that the confirmed integration in
 python -m discovery.inspect
 ```
 
-## Order summary feature (new, Phase 1 — CSV, single-day-verified)
+## Order summary feature
 
-A separate, independent feature from equipment health monitoring: a daily
-business summary (order count, average price, total oranges used, average
-juice weight) sourced from Order Management → Order Information — a
-section the original spec explicitly listed as a non-goal, now in scope
-by explicit request. Lives entirely in its own `orders/` package; nothing
-in `monitoring/`/`services/`/`db/` was touched.
+A separate, independent feature from equipment health monitoring: a
+business summary (order count, price, oranges used, juice weight)
+sourced from Order Management → Order Information — a section the
+original spec explicitly listed as a non-goal, now in scope by explicit
+request. Lives in its own `orders/` package plus two new tables in the
+existing DB (`db/models.py`'s `OrderSummary`/`OrderSummaryRun`); nothing
+in `monitoring/`/`services/` was touched.
 
 ```bash
 python -m orders.backfill --date 2026-08-23              # single day
 python -m orders.backfill --start 2026-08-01 --end 2026-08-23   # range
 ```
 
-- **Filter applied to every summary number** (confirmed with the user):
-  only orders where `order_status == "Completed"` AND
+**Storage grain** (redefined from an earlier CSV-based v1 after user
+feedback): one row per `(date, device_app, price, pay_type)` — the
+*finest* grain the feature needs, not a pre-aggregated one. If price
+changes mid-day on a machine, that's two separate rows for that machine,
+one per price, by design ("if there are 3 machines active and price was
+altered mid-day then I expect 2 separate entries per machine, one for
+each price"). Every other view — full aggregate, machine-wise,
+price-wise, pay-type-wise, or any combination — is a rollup computed
+from these rows at query/render time (`orders/rollup.py`), not a
+separately stored table, so no view is ever missing because it wasn't
+pre-computed. Storage moved from the originally-planned CSV straight to
+the database for this redesign — a CSV can't reasonably support the
+flexible period/breakdown queries the UI needs.
+
+- **Filter applied before any number is computed** (confirmed with the
+  user): only orders where `order_status == "Completed"` AND
   `delivery_status == "Success"` count.
-- **Output**: `data/order_summaries/daily_summary.csv` (git-ignored — real
-  business data), one row per `(date, device_app)` plus an aggregate row
-  (`device_app == "ALL"`) per date — that covers the requested
-  aggregated/machine-wise/price/volume views in a single flat schema.
-- **Caching**: a date is treated as already computed once its `ALL` row
-  exists in the CSV; `backfill` skips straight past cached dates with
-  zero requests to the target, and only ever fetches sequentially, one
-  date at a time (confirmed live: re-running the same `--date` produces
-  no HTTP traffic at all).
-- **Storage is deliberately just a CSV for now** (per the user) — Phase 2
-  will move this to the database once the numbers are verified.
-- **Verified live** (2026-08-23, the last fully-complete UTC+8 day at the
-  time): 310 raw orders fetched (paginated, 4 pages), 249 passed the
-  filter, broken down 47/120/82 across Gravity/NEXUS/PNR (sums to 249).
-  **Not yet independently verified against the target app's own UI** —
-  that's the next step before trusting this beyond one day.
+- **"Already processed" tracking**: `OrderSummaryRun` (one row per date,
+  mirrors `MonitoringRun`'s role for the equipment poller) — a quiet day
+  with zero qualifying orders still gets a `SUCCESS` row, so it's never
+  endlessly retried; a fetch failure gets a `FAILED` row instead of a
+  fabricated zero, and is retried on the next run. `backfill` only ever
+  fetches sequentially, one date at a time, skipping dates already marked
+  `SUCCESS` (confirmed live: re-running the same `--date` produces zero
+  HTTP traffic).
+- **UI**: a new "Order Summary" dashboard tab
+  (`backend/api/orders.py` + `backend/templates/order_summary.html`) —
+  period selector (Daily/Weekly/Monthly/YTD + an "as of" date), checkboxes
+  to break down by machine/price/pay type independently, a Chart.js
+  line chart (orders per day, aggregated or one line per machine — via
+  CDN, no build step), and the breakdown table. All server-rendered and
+  computed from the same `orders/rollup.py` at request time.
+- **Verified live end to end**, including the actual rendered dashboard
+  page (not just the CLI): 2026-08-23 (the last fully-complete UTC+8 day)
+  → 310 raw orders, 249 passed the filter, 3 groups (Gravity/NEXUS/PNR,
+  no price change that day so one group each), 47/120/82 orders — matches
+  across the CLI output, the DB tables, and the live dashboard screenshot.
+  **Not yet independently verified against the target app's own UI**, and
+  **not yet backfilled beyond that one day** (32,049 total orders exist —
+  see the integration spec) — both flagged as next steps.
 - A real, previously-undocumented detail this surfaced: the target's
   `createtime` date-range filter uses **UTC+8 (China Standard Time) day
   boundaries**, not UTC/IST/local time — confirmed by checking three
@@ -353,16 +375,20 @@ backend/                      Phase 5 dashboard (FastAPI + Jinja2)
     alerts.py                   active faults + per-user subscriptions
     users.py                    admin-only user management
     monitoring.py                JSON /api/monitoring/status
+    orders.py                    Order Summary tab — period/breakdown selection + chart
   templates/, static/          Jinja2 HTML + one stylesheet, no build step
 
-orders/                        Daily order-summary feature (independent of
+orders/                        Order-summary feature (independent of
                              equipment monitoring — see its own README section)
   selectors.py                  confirmed order-list API + the UTC+8 finding
   mapping.py                    raw row -> OrderRecord (incl. UTC+8 date calc)
   client.py                     httpx fetch for one UTC+8 day, paginated
-  summary.py                    filter + aggregate/machine-wise math
-  cache.py                      CSV read/write + "already cached" detection
-  backfill.py                   CLI: sequential day-by-day, skips cached dates
+  summary.py                    filter + (machine, price, pay_type) grouping
+  store.py                       DB persistence (OrderSummary/OrderSummaryRun);
+                             "already processed" detection, idempotent re-save
+  rollup.py                      query-time aggregation into any requested view
+                             (used by both the CLI printout and the UI)
+  backfill.py                   CLI: sequential day-by-day, skips processed dates
 
 tests/
   conftest.py                  shared fixtures (in-memory SQLite + record factory)
@@ -377,8 +403,11 @@ tests/
                              no real network
   test_backend.py              FastAPI TestClient: auth, RBAC, all pages, subscription CRUD
   test_orders_mapping.py       field mapping + the UTC+8 day-boundary calculation
-  test_orders_summary.py       filter + aggregate/machine-wise math, hand-computed expected values
-  test_orders_cache.py         CSV round-trip + cache-detection logic
+  test_orders_summary.py       filter + (machine,price,pay_type) grouping, incl. the
+                             mid-day-price-change requirement, hand-computed values
+  test_orders_rollup.py        aggregation math (weighted averages across combined groups)
+  test_orders_store.py         DB round-trip, idempotent re-save, quiet-day handling
+  test_orders_backend.py       Order Summary tab: auth, period switching, breakdowns
   tc_001_target_connection/    numbered live test case: connect, authenticate
                              (reuse-first), extract, report malfunctions
 ```
