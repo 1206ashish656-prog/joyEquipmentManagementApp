@@ -1,0 +1,876 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Equipment Health Monitoring &amp; Alerting — System Report</title>
+<style>
+  :root{
+    --ink:#1a1d23; --muted:#5b6472; --line:#dde1e7; --panel:#f6f7f9;
+    --brand:#2563eb; --healthy:#16a34a; --warning:#ca8a04; --malfunction:#dc2626; --offline:#374151;
+    --code-bg:#f1f3f6;
+  }
+  *{box-sizing:border-box}
+  body{
+    font-family: Georgia, 'Times New Roman', serif;
+    color:var(--ink); font-size:11.3pt; line-height:1.55; margin:0;
+  }
+  h1,h2,h3,h4{ font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; color:#0f1115; }
+  h1{ font-size:23pt; margin:0 0 6px 0; }
+  h2{ font-size:16pt; margin:0 0 10px 0; padding-bottom:6px; border-bottom:2px solid var(--ink); }
+  h3{ font-size:12.5pt; margin:22px 0 8px 0; color:var(--brand); }
+  h4{ font-size:11.3pt; margin:14px 0 6px 0; }
+  p{ margin:0 0 10px 0; }
+  a{ color:var(--brand); }
+  .section{ page-break-before: always; padding-top: 6px; }
+  .cover{ page-break-before: avoid; }
+  code, .mono{ font-family: 'Consolas', 'SFMono-Regular', monospace; font-size:9.6pt; background:var(--code-bg); padding:1px 5px; border-radius:3px; }
+  pre{ font-family:'Consolas','SFMono-Regular',monospace; font-size:9.3pt; background:var(--code-bg); border:1px solid var(--line); border-radius:6px; padding:10px 12px; overflow-x:auto; white-space:pre-wrap; }
+  table{ border-collapse:collapse; width:100%; margin:10px 0 16px 0; font-size:10pt; }
+  thead{ display: table-header-group; }
+  tr{ page-break-inside: avoid; }
+  th,td{ border:1px solid var(--line); padding:6px 9px; text-align:left; vertical-align:top; }
+  th{ background:var(--panel); font-family:-apple-system,'Segoe UI',sans-serif; font-weight:700; }
+  tr:nth-child(even) td{ background:#fbfbfc; }
+  .badge{ display:inline-block; padding:1px 8px; border-radius:999px; font-size:8.6pt; font-weight:700; font-family:-apple-system,sans-serif; }
+  .b-healthy{ background:#dcfce7; color:var(--healthy); }
+  .b-warning{ background:#fef9c3; color:var(--warning); }
+  .b-malfunction{ background:#fee2e2; color:var(--malfunction); }
+  .b-offline{ background:#e5e7eb; color:var(--offline); }
+  .callout{ border-left:4px solid var(--brand); background:var(--panel); padding:10px 14px; margin:12px 0; border-radius:0 6px 6px 0; font-size:10.3pt; }
+  .callout.limit{ border-left-color:var(--malfunction); }
+  .callout.limit b{ color:var(--malfunction); }
+  .callout.ok{ border-left-color:var(--healthy); }
+  .figure{ margin:14px 0 20px 0; text-align:center; }
+  .figure img{ max-width:100%; border:1px solid var(--line); border-radius:6px; }
+  .figure .cap{ font-family:-apple-system,'Segoe UI',sans-serif; font-size:9.3pt; color:var(--muted); margin-top:6px; }
+  .toc a{ text-decoration:none; }
+  .toc li{ margin-bottom:6px; }
+  .toc .sub{ font-size:9.8pt; color:var(--muted); margin-left:18px; }
+  .cover-meta{ margin-top:60px; font-family:-apple-system,'Segoe UI',sans-serif; color:var(--muted); font-size:10.5pt; }
+  .cover-meta div{ margin-bottom:4px; }
+  .kicker{ font-family:-apple-system,'Segoe UI',sans-serif; text-transform:uppercase; letter-spacing:0.08em; font-size:9.5pt; color:var(--brand); font-weight:700; margin-bottom:10px; }
+  .status-table td:nth-child(2){ font-weight:700; }
+  .small{ font-size:9.6pt; color:var(--muted); }
+  ul,ol{ margin:6px 0 12px 0; padding-left:22px; }
+  li{ margin-bottom:4px; }
+  .diagram-wrap{ text-align:center; margin:14px 0 22px 0; }
+  .diagram-wrap svg{ max-width:100%; height:auto; border:1px solid var(--line); border-radius:8px; background:#ffffff; }
+</style>
+</head>
+<body>
+
+<!-- ============================== COVER ============================== -->
+<section class="cover" style="min-height: 92vh; display:flex; flex-direction:column; justify-content:center;">
+  <div class="kicker">System Report</div>
+  <h1>Equipment Health Monitoring &amp; Alerting Application</h1>
+  <p style="font-size:13pt; color:var(--muted); font-family:-apple-system,sans-serif; max-width:520px;">
+    Session-aware monitoring, health evaluation, incident alerting, and a
+    live web dashboard for a third-party equipment management application.
+  </p>
+  <div class="cover-meta">
+    <div><b>Report date:</b> 23 August 2026</div>
+    <div><b>Target application:</b> jwintell.com (Equipment Management → Device Information)</div>
+    <div><b>Prepared for:</b> Project owner / stakeholder review</div>
+    <div><b>Status:</b> Phases 1–5 implemented and functionally verified live against the real
+      target site; Phase 6 (hardening) and full Postgres/SMTP verification pending — see §8.</div>
+  </div>
+</section>
+
+<!-- ============================== TOC ============================== -->
+<section class="section">
+<h2>Table of Contents</h2>
+<ol class="toc">
+  <li><a href="#s1">Executive Summary</a></li>
+  <li><a href="#s2">System Architecture</a></li>
+  <li><a href="#s3">End-to-End Workflow</a></li>
+  <li><a href="#s4">Framework &amp; Technology Choices — Justification</a></li>
+  <li><a href="#s5">Constraints &amp; Current Limitations</a></li>
+  <li><a href="#s6">Feature Walkthrough (Live Screenshots)</a></li>
+  <li><a href="#s7">Testing &amp; Live Verification Summary</a></li>
+  <li><a href="#s8">Pending Features / Roadmap</a></li>
+  <li><a href="#appa">Appendix A — Tool &amp; Technology Reference</a></li>
+  <li><a href="#appb">Appendix B — Project File Structure</a></li>
+  <li><a href="#appc">Appendix C — State Vocabulary Glossary</a></li>
+</ol>
+</section>
+
+<!-- ============================== 1. EXEC SUMMARY ============================== -->
+<section class="section" id="s1">
+<h2>1. Executive Summary</h2>
+
+<p>This application is a lightweight monitoring and alerting layer sitting in front of
+an existing, authenticated, third-party equipment-management web application
+(jwintell.com). It does not replicate that application. It periodically retrieves
+equipment status from its Equipment Management → Device Information section, converts
+the target's raw fields into a canonical health state via configurable rules, detects
+state changes exactly once per transition (never once per poll), stores full history,
+and notifies subscribers by email — with a live web dashboard for humans to watch the
+whole fleet.</p>
+
+<p>The two requirements treated as non-negotiable throughout the build, per the original
+specification, were: <b>authentication must be reused, not repeated</b> (no login on
+every poll cycle, CAPTCHA handled only by a human), and <b>a monitoring/technical
+failure must never be mistaken for an equipment fault</b> (target unreachable, session
+expired, or extraction error are distinct technical states, never converted into a
+fake HEALTHY/OFFLINE/MALFUNCTION reading).</p>
+
+<h3>Phase status</h3>
+<table class="status-table">
+<tr><th style="width:34%">Phase</th><th style="width:16%">Status</th><th>Notes</th></tr>
+<tr><td>1 — Target application discovery</td><td>Done</td><td>Confirmed live: login flow, session markers, and — critically — the underlying JSON list API the target's own UI uses, discovered via live network inspection rather than assumed.</td></tr>
+<tr><td>2 — Monitoring proof of concept</td><td>Done</td><td>Session reuse across repeated polls proven live (no re-login on repeat runs).</td></tr>
+<tr><td>3 — Database + state engine</td><td>Implemented, live-verified</td><td>Against SQLite only — no Postgres/Docker available in the build environment (see §5, §8).</td></tr>
+<tr><td>4 — Alerting</td><td>Implemented, live-verified</td><td>Incident-triggered notifications confirmed firing during live runs; no real SMTP send exercised (no credentials available).</td></tr>
+<tr><td>5 — Web dashboard</td><td>Implemented, live-verified</td><td>Real <code>uvicorn</code> process, hit with real HTTP requests; screenshots in §6 are captured from this live run, not mockups.</td></tr>
+<tr><td>6 — Production hardening</td><td>Not started</td><td>See §8.</td></tr>
+</table>
+
+<div class="callout ok">
+<b>What "live-verified" means in this report:</b> every screenshot in §6 and every
+metric quoted in §7 was captured from an actual running process talking to the real
+target site during this build — not a mockup, not a simulated response. Where
+something has <em>not</em> been exercised for real (Postgres, SMTP), this report says
+so explicitly rather than presenting it as done.
+</div>
+</section>
+
+<!-- ============================== 2. ARCHITECTURE ============================== -->
+<section class="section" id="s2">
+<h2>2. System Architecture</h2>
+
+<p>The system is deliberately layered so that if the target site's markup or API
+changes, only the target-facing layer needs to change — nothing downstream of it
+should need to know or care where equipment data came from.</p>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 1150 640" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4b5563"/>
+    </marker>
+  </defs>
+  <style>
+    .box{ fill:#f8fafc; stroke:#94a3b8; stroke-width:1.4; rx:9; }
+    .box-t{ fill:#eff6ff; stroke:#2563eb; }
+    .box-h{ fill:#f0fdf4; stroke:#16a34a; }
+    .box-a{ fill:#fff7ed; stroke:#ea580c; }
+    .box-d{ fill:#fefce8; stroke:#ca8a04; }
+    .lbl{ font-family:-apple-system,'Segoe UI',sans-serif; font-size:12.5px; fill:#111827; font-weight:600; }
+    .lbl2{ font-family:-apple-system,'Segoe UI',sans-serif; font-size:10.2px; fill:#4b5563; }
+    .edge{ stroke:#4b5563; stroke-width:1.6; fill:none; marker-end:url(#arr); }
+  </style>
+
+  <!-- Row 1: pipeline -->
+  <rect class="box box-t" x="35" y="30" width="210" height="80"/>
+  <text class="lbl" x="140" y="62" text-anchor="middle">Target Application</text>
+  <text class="lbl2" x="140" y="82" text-anchor="middle">jwintell.com (FastAdmin /</text>
+  <text class="lbl2" x="140" y="97" text-anchor="middle">ThinkPHP back office)</text>
+
+  <rect class="box" x="265" y="30" width="210" height="80"/>
+  <text class="lbl" x="370" y="55" text-anchor="middle">Target Client Layer</text>
+  <text class="lbl2" x="370" y="75" text-anchor="middle">httpx (steady-state) /</text>
+  <text class="lbl2" x="370" y="90" text-anchor="middle">Playwright (CAPTCHA only)</text>
+
+  <rect class="box" x="495" y="30" width="210" height="80"/>
+  <text class="lbl" x="600" y="62" text-anchor="middle">Equipment Extractor</text>
+  <text class="lbl2" x="600" y="82" text-anchor="middle">extract / validate / normalize</text>
+
+  <rect class="box box-h" x="725" y="30" width="210" height="80"/>
+  <text class="lbl" x="830" y="62" text-anchor="middle">Health Engine</text>
+  <text class="lbl2" x="830" y="82" text-anchor="middle">raw fields → canonical state</text>
+
+  <rect class="box box-h" x="955" y="30" width="180" height="80"/>
+  <text class="lbl" x="1045" y="55" text-anchor="middle">State Manager</text>
+  <text class="lbl2" x="1045" y="75" text-anchor="middle">incident open /</text>
+  <text class="lbl2" x="1045" y="90" text-anchor="middle">escalate / resolve</text>
+
+  <path class="edge" d="M245,70 H265"/>
+  <path class="edge" d="M475,70 H495"/>
+  <path class="edge" d="M705,70 H725"/>
+  <path class="edge" d="M935,70 H955"/>
+
+  <!-- down to DB -->
+  <path class="edge" d="M1045,110 V150 H600 V190"/>
+
+  <!-- DB hub -->
+  <rect class="box box-d" x="440" y="190" width="320" height="90"/>
+  <text class="lbl" x="600" y="222" text-anchor="middle">Database</text>
+  <text class="lbl2" x="600" y="242" text-anchor="middle">equipment · snapshots · incidents</text>
+  <text class="lbl2" x="600" y="258" text-anchor="middle">users · subscriptions · monitoring_run</text>
+
+  <!-- branch down -->
+  <path class="edge" d="M600,280 V310 H170 V330"/>
+  <path class="edge" d="M600,280 V310 H1030 V330"/>
+
+  <!-- Left branch: alerting -->
+  <rect class="box box-a" x="60" y="330" width="220" height="70"/>
+  <text class="lbl" x="170" y="360" text-anchor="middle">Alert Engine</text>
+  <text class="lbl2" x="170" y="380" text-anchor="middle">who + what message</text>
+  <path class="edge" d="M170,400 V430"/>
+
+  <rect class="box box-a" x="60" y="430" width="220" height="70"/>
+  <text class="lbl" x="170" y="460" text-anchor="middle">Notification Service</text>
+  <text class="lbl2" x="170" y="480" text-anchor="middle">email (console fallback)</text>
+  <path class="edge" d="M170,500 V530"/>
+
+  <rect class="box" x="60" y="530" width="220" height="70"/>
+  <text class="lbl" x="170" y="560" text-anchor="middle">Users</text>
+  <text class="lbl2" x="170" y="580" text-anchor="middle">admins + subscribers (email)</text>
+
+  <!-- Right branch: dashboard -->
+  <rect class="box box-t" x="920" y="330" width="220" height="70"/>
+  <text class="lbl" x="1030" y="360" text-anchor="middle">FastAPI Backend</text>
+  <text class="lbl2" x="1030" y="380" text-anchor="middle">auth · RBAC · routes</text>
+  <path class="edge" d="M1030,400 V430"/>
+
+  <rect class="box box-t" x="920" y="430" width="220" height="70"/>
+  <text class="lbl" x="1030" y="460" text-anchor="middle">Web Dashboard</text>
+  <text class="lbl2" x="1030" y="480" text-anchor="middle">Jinja2, 5s auto-refresh</text>
+  <path class="edge" d="M1030,500 V530"/>
+
+  <rect class="box" x="920" y="530" width="220" height="70"/>
+  <text class="lbl" x="1030" y="560" text-anchor="middle">Browser / Dashboard Users</text>
+  <text class="lbl2" x="1030" y="580" text-anchor="middle">up to ~100 concurrent</text>
+</svg>
+</div>
+<p class="small" style="text-align:center;">Figure 1 — Component architecture. The Database is the single integration point between the
+monitoring worker (left/top path) and the web dashboard (right path) — they never talk to each other directly.</p>
+
+<h3>Why this shape</h3>
+<ul>
+<li><b>Isolation of target-specific code.</b> Only <code>target_client.py</code>,
+<code>lightweight_client.py</code>, <code>mapping.py</code>, and <code>selectors.py</code>
+know anything about jwintell.com's actual markup/API. Everything from the Extractor
+onward works with normalized data.</li>
+<li><b>Health is computed, not copied.</b> The target's own <code>status</code> field is
+never treated as the application's health verdict — the Health Engine applies
+independent, configurable rules (§4) to arrive at one of five canonical states.</li>
+<li><b>One shared database, two independent processes.</b> The monitoring worker and
+the web dashboard are separate OS processes that never call each other; they only ever
+meet at the database. This matches the spec's own scale model (§29 of the original
+brief): one monitoring session, one dataset, many dashboard viewers.</li>
+</ul>
+</section>
+
+<!-- ============================== 3. WORKFLOW ============================== -->
+<section class="section" id="s3">
+<h2>3. End-to-End Workflow</h2>
+
+<p>Figure 2 shows one full monitoring poll cycle exactly as implemented in
+<code>monitoring/worker.py</code> — including the session-validity branch (which is
+where the CAPTCHA-driven, human-in-the-loop authentication happens) and the
+per-equipment state-transition branch (which is where the "one alert, not four" rule
+is enforced).</p>
+
+<div class="diagram-wrap">
+<svg viewBox="0 0 1150 1560" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4b5563"/>
+    </marker>
+  </defs>
+  <style>
+    .box{ fill:#f8fafc; stroke:#94a3b8; stroke-width:1.4; }
+    .box-start{ fill:#111827; stroke:#111827; }
+    .box-auth{ fill:#fff7ed; stroke:#ea580c; }
+    .box-err{ fill:#fef2f2; stroke:#dc2626; }
+    .box-new{ fill:#fef2f2; stroke:#dc2626; }
+    .box-ong{ fill:#fefce8; stroke:#ca8a04; }
+    .box-rec{ fill:#f0fdf4; stroke:#16a34a; }
+    .box-none{ fill:#f1f5f9; stroke:#64748b; }
+    .diamond{ fill:#eef2ff; stroke:#4338ca; stroke-width:1.4; }
+    .lbl{ font-family:-apple-system,'Segoe UI',sans-serif; font-size:12.5px; fill:#111827; font-weight:600; }
+    .lblw{ font-family:-apple-system,'Segoe UI',sans-serif; font-size:12.5px; fill:#ffffff; font-weight:700; }
+    .lbl2{ font-family:-apple-system,'Segoe UI',sans-serif; font-size:9.6px; fill:#4b5563; }
+    .lbld{ font-family:-apple-system,'Segoe UI',sans-serif; font-size:10.5px; fill:#1e1b4b; font-weight:600; }
+    .tag{ font-family:-apple-system,'Segoe UI',sans-serif; font-size:9.6px; fill:#4b5563; font-weight:700; }
+    .edge{ stroke:#4b5563; stroke-width:1.6; fill:none; marker-end:url(#arr2); }
+    .edgeloop{ stroke:#2563eb; stroke-width:1.6; fill:none; marker-end:url(#arr2); stroke-dasharray:5,3; }
+  </style>
+
+  <!-- START -->
+  <rect class="box box-start" x="390" y="16" width="420" height="52" rx="10"/>
+  <text class="lblw" x="600" y="48" text-anchor="middle">START — python -m monitoring.worker --loop</text>
+
+  <path class="edge" d="M600,68 V96"/>
+  <rect class="box" x="390" y="96" width="420" height="56" rx="8"/>
+  <text class="lbl" x="600" y="129" text-anchor="middle">Load settings (.env) · init DB engine</text>
+
+  <path class="edge" d="M600,152 V180"/>
+  <!-- Diamond D1 -->
+  <polygon class="diamond" points="600,180 800,255 600,330 400,255"/>
+  <text class="lbld" x="600" y="248" text-anchor="middle">Session valid?</text>
+  <text class="lbl2" x="600" y="266" text-anchor="middle">(plain HTTP GET — no browser)</text>
+
+  <!-- NO branch to auth side -->
+  <text class="tag" x="365" y="240">NO</text>
+  <path class="edge" d="M400,255 H340"/>
+  <rect class="box box-auth" x="20" y="220" width="320" height="60" rx="8"/>
+  <text class="lbl" x="180" y="245" text-anchor="middle">Launch Playwright browser</text>
+  <text class="lbl2" x="180" y="263" text-anchor="middle">(visible, only for this step)</text>
+
+  <path class="edge" d="M180,280 V300"/>
+  <rect class="box box-auth" x="20" y="300" width="320" height="60" rx="8"/>
+  <text class="lbl" x="180" y="325" text-anchor="middle">Open login page</text>
+  <text class="lbl2" x="180" y="343" text-anchor="middle">prefill username/password</text>
+
+  <path class="edge" d="M180,360 V380"/>
+  <rect class="box box-auth" x="20" y="380" width="320" height="66" rx="8"/>
+  <text class="lbl" x="180" y="405" text-anchor="middle">Human completes CAPTCHA</text>
+  <text class="lbl2" x="180" y="423" text-anchor="middle">+ submits — never automated</text>
+  <text class="lbl2" x="180" y="438" text-anchor="middle">(polls page URL, no console input needed)</text>
+
+  <path class="edge" d="M180,446 V466"/>
+  <rect class="box box-auth" x="20" y="466" width="320" height="52" rx="8"/>
+  <text class="lbl" x="180" y="497" text-anchor="middle">Save session → storage_state.json</text>
+
+  <path class="edge" d="M180,518 V538"/>
+  <rect class="box box-auth" x="20" y="538" width="320" height="52" rx="8"/>
+  <text class="lbl" x="180" y="569" text-anchor="middle">Close browser</text>
+
+  <path class="edge" d="M180,590 V610 H570 V642"/>
+
+  <!-- YES branch straight down -->
+  <text class="tag" x="618" y="352">YES</text>
+  <path class="edge" d="M600,330 V642"/>
+
+  <!-- Merge box -->
+  <rect class="box" x="390" y="642" width="420" height="58" rx="8"/>
+  <text class="lbl" x="600" y="668" text-anchor="middle">Fetch equipment data</text>
+  <text class="lbl2" x="600" y="686" text-anchor="middle">httpx GET JSON API, paginated — no browser</text>
+
+  <path class="edge" d="M600,700 V726"/>
+  <polygon class="diamond" points="600,726 820,796 600,866 380,796"/>
+  <text class="lbld" x="600" y="790" text-anchor="middle">Data valid?</text>
+  <text class="lbl2" x="600" y="808" text-anchor="middle">(≥1 record; IDs/codes present)</text>
+
+  <text class="tag" x="850" y="778">NO</text>
+  <path class="edge" d="M820,796 H900"/>
+  <rect class="box box-err" x="900" y="766" width="230" height="60" rx="8"/>
+  <text class="lbl" x="1015" y="791" text-anchor="middle" style="font-size:11px">EXTRACTION_ERROR</text>
+  <text class="lbl2" x="1015" y="809" text-anchor="middle">MonitoringRun = FAILED</text>
+  <path class="edge" d="M1015,826 V1490 H810"/>
+
+  <text class="tag" x="618" y="888">YES</text>
+  <path class="edge" d="M600,866 V894"/>
+
+  <rect class="box" x="330" y="894" width="540" height="66" rx="8"/>
+  <text class="lbl" x="600" y="920" text-anchor="middle">For each equipment record:</text>
+  <text class="lbl2" x="600" y="940" text-anchor="middle">Health Engine evaluates → State Manager compares vs. last known state</text>
+
+  <path class="edge" d="M600,960 V986"/>
+  <polygon class="diamond" points="600,986 800,1046 600,1106 400,1046"/>
+  <text class="lbld" x="600" y="1042" text-anchor="middle">State changed?</text>
+  <text class="lbl2" x="600" y="1058" text-anchor="middle">vs. previous poll</text>
+
+  <text class="tag" x="365" y="1030">NO</text>
+  <path class="edge" d="M400,1046 H240 V1190"/>
+  <rect class="box box-none" x="120" y="1190" width="240" height="56" rx="8"/>
+  <text class="lbl" x="240" y="1214" text-anchor="middle" style="font-size:10.6px">Snapshot only</text>
+  <text class="lbl2" x="240" y="1231" text-anchor="middle">no incident action</text>
+
+  <text class="tag" x="618" y="1128">YES</text>
+  <path class="edge" d="M600,1106 V1132"/>
+
+  <!-- 4-way outcome row -->
+  <text class="lbl2" x="600" y="1150" text-anchor="middle">Outcome of the new state, per requirement #8/#9/#28:</text>
+
+  <rect class="box box-new" x="10" y="1162" width="265" height="80" rx="8"/>
+  <text class="lbl" x="142" y="1188" text-anchor="middle" style="font-size:11px">NEW FAULT</text>
+  <text class="lbl2" x="142" y="1206" text-anchor="middle">Open FaultIncident</text>
+  <text class="lbl2" x="142" y="1220" text-anchor="middle">(exact fault_type preserved)</text>
+  <text class="lbl2" x="142" y="1234" text-anchor="middle">ONE alert, not one per poll</text>
+
+  <rect class="box box-ong" x="295" y="1162" width="265" height="80" rx="8"/>
+  <text class="lbl" x="427" y="1188" text-anchor="middle" style="font-size:11px">ONGOING FAULT</text>
+  <text class="lbl2" x="427" y="1206" text-anchor="middle">Update SAME incident</text>
+  <text class="lbl2" x="427" y="1220" text-anchor="middle">(escalation-aware,</text>
+  <text class="lbl2" x="427" y="1234" text-anchor="middle">no duplicate created)</text>
+
+  <rect class="box box-rec" x="580" y="1162" width="265" height="80" rx="8"/>
+  <text class="lbl" x="712" y="1188" text-anchor="middle" style="font-size:11px">RECOVERED → HEALTHY</text>
+  <text class="lbl2" x="712" y="1206" text-anchor="middle">Resolve incident</text>
+  <text class="lbl2" x="712" y="1220" text-anchor="middle">downtime = resolved − started</text>
+  <text class="lbl2" x="712" y="1234" text-anchor="middle">only on EXPLICIT healthy</text>
+
+  <rect class="box box-none" x="865" y="1162" width="265" height="80" rx="8"/>
+  <text class="lbl" x="997" y="1188" text-anchor="middle" style="font-size:11px">UNKNOWN / no-op</text>
+  <text class="lbl2" x="997" y="1206" text-anchor="middle">No incident action</text>
+  <text class="lbl2" x="997" y="1220" text-anchor="middle">uncertainty never opens</text>
+  <text class="lbl2" x="997" y="1234" text-anchor="middle">or resolves an incident</text>
+
+  <path class="edge" d="M142,1242 V1270 H460 V1300"/>
+  <path class="edge" d="M427,1242 V1300"/>
+  <path class="edge" d="M712,1242 V1270 H460 V1300"/>
+  <path class="edge" d="M997,1242 V1280 H820 V1300"/>
+
+  <rect class="box box-auth" x="290" y="1300" width="530" height="60" rx="8"/>
+  <text class="lbl" x="555" y="1325" text-anchor="middle">AlertEngine.notify()</text>
+  <text class="lbl2" x="555" y="1343" text-anchor="middle">resolve recipients (admins + subscriptions) → NotificationService</text>
+
+  <path class="edge" d="M240,1246 V1400 H810"/>
+  <path class="edge" d="M555,1360 V1400"/>
+
+  <rect class="box" x="330" y="1400" width="540" height="58" rx="8"/>
+  <text class="lbl" x="600" y="1424" text-anchor="middle">Update EquipmentCurrentState + insert EquipmentSnapshot</text>
+  <text class="lbl2" x="600" y="1442" text-anchor="middle">always happens, every poll, regardless of the branch above</text>
+
+  <path class="edge" d="M600,1458 V1490"/>
+  <rect class="box" x="390" y="1490" width="420" height="56" rx="8"/>
+  <text class="lbl" x="600" y="1516" text-anchor="middle">Record MonitoringRun · sleep POLL_INTERVAL_SECONDS</text>
+  <text class="lbl2" x="600" y="1534" text-anchor="middle">(10-60s, configurable)</text>
+
+  <!-- loop back -->
+  <path class="edgeloop" d="M810,1518 H1090 V255 H800"/>
+  <text class="tag" x="1096" y="880" transform="rotate(90 1096,880)">repeat every cycle</text>
+</svg>
+</div>
+<p class="small" style="text-align:center;">Figure 2 — One monitoring poll cycle, including the session-validity/CAPTCHA branch and the
+four possible outcomes of a state-transition check.</p>
+
+<h3>Narrative walkthrough</h3>
+<ol>
+<li><b>Startup.</b> Settings load from <code>.env</code>; the database engine initializes
+(tables created if absent).</li>
+<li><b>Session check.</b> <code>LightweightTargetClient.is_session_valid()</code> issues one
+plain HTTP GET to the target's authenticated home page and inspects whether it was
+redirected to the login page — no browser involved.</li>
+<li><b>Authentication (only when needed).</b> If invalid/expired, <code>_reauthenticate()</code>
+is the only place a Playwright browser is launched. Credentials are prefilled; the CAPTCHA
+is left entirely to a human. The resulting session cookies are persisted to
+<code>storage_state.json</code>, and the browser is closed immediately — it does not stay
+open for polling.</li>
+<li><b>Extraction.</b> Equipment data is fetched via the target's own JSON list API
+(discovered during Phase 1, preferred over DOM scraping per the original requirement to
+use a structured request where one exists), with a DOM-scrape fallback available in the
+Playwright-based client if the API ever breaks structurally.</li>
+<li><b>Validation.</b> An empty or malformed result set is treated as a validation
+failure, never as "zero machines" — this is the safeguard against a broken page or a
+failed login silently producing a fleet-wide false OFFLINE reading.</li>
+<li><b>Health evaluation.</b> Each record is run through the configurable rule table in
+<code>config/health_rules.yaml</code> to produce one of five canonical states.</li>
+<li><b>State comparison and incident handling.</b> The new state is compared to the
+last known state. A fault only ever opens ONE incident for its entire duration; ongoing
+faults update that same incident; recovery is only recognized on an explicit HEALTHY
+observation; an <code>UNKNOWN</code> reading — from a missing or unrecognized field — takes
+no incident action in either direction.</li>
+<li><b>Alerting.</b> Any incident opened, escalated, or resolved this cycle triggers
+<code>AlertEngine.notify()</code>, which resolves recipients and sends via
+<code>NotificationService</code>.</li>
+<li><b>Persistence.</b> A snapshot and the current-state row are written for every
+equipment record on every cycle, regardless of whether anything changed — this is what
+powers the dashboard's history timeline.</li>
+<li><b>Bookkeeping and wait.</b> A <code>MonitoringRun</code> audit row records the
+cycle's outcome; the worker sleeps for the configured interval and repeats.</li>
+</ol>
+
+<h3>Web dashboard request flow</h3>
+<p>The dashboard is a separate, independent process. On each page request: a signed
+session cookie identifies the user (or redirects to <code>/login</code>); a role check
+gates admin-only pages; the route reads directly from the same database the worker
+writes to; a Jinja2 template renders the response. The fleet-overview, active-faults,
+and equipment-detail pages carry a 5-second <code>&lt;meta http-equiv="refresh"&gt;</code>
+so an open browser tab reflects new polls without a manual reload.</p>
+</section>
+
+<!-- ============================== 4. FRAMEWORK CHOICES ============================== -->
+<section class="section" id="s4">
+<h2>4. Framework &amp; Technology Choices — Justification</h2>
+
+<h3>4.1 Playwright, but only for the CAPTCHA step</h3>
+<p>Playwright was the correct starting point because the target application requires an
+interactive login with an image CAPTCHA — no pure-HTTP client can complete that step,
+and per the original requirement, it must never be automated. However, once
+Phase 1 discovery revealed that the actual equipment data comes from a plain JSON
+endpoint (not server-rendered HTML requiring JS execution), keeping a full browser
+running for every subsequent poll stopped being justified. The application was
+refactored mid-build (see the git history) to a hybrid: Playwright is retained
+exclusively for the login/CAPTCHA flow and as a DOM-scrape fallback; <code>httpx</code>
+handles all steady-state polling. This was verified live — zero Playwright-owned
+Chromium processes existed across multiple full poll cycles once the change was made,
+versus one long-lived visible browser window before it.</p>
+
+<h3>4.2 FastAPI for the backend</h3>
+<p>Chosen over Flask/Django for its native <code>async</code> support (consistent with
+the rest of the codebase), automatic request validation via Python type hints, and
+built-in OpenAPI docs generation — useful even though the dashboard is server-rendered,
+since the JSON endpoints (<code>/api/monitoring/status</code>) are self-documenting for
+free. It is also explicitly the framework named in the original technology brief.</p>
+
+<h3>4.3 Server-rendered Jinja2, not Next.js</h3>
+<p>The original brief named React/Next.js. Node/npm were confirmed available in the
+build environment, but a Next.js frontend means a second application, a separate build
+pipeline, and a second dev server to run and keep in sync with the API — substantially
+more surface area than this deployment's scale (1–100 internal users) justifies. This
+was raised explicitly with the project owner before building, who confirmed the
+server-rendered approach. The route layer (<code>backend/api/*.py</code>) still returns
+structured data cleanly enough that a Next.js frontend could be layered on top later
+without touching <code>services/</code> or <code>db/</code>.</p>
+
+<h3>4.4 SQLAlchemy over PostgreSQL, with SQLite as a portable test/demo target</h3>
+<p>SQLAlchemy's ORM gives declarative models with real relationships and constraints,
+and — deliberately — the models in this project use only portable column types (no
+JSONB, no native ENUM) so the identical schema runs against both PostgreSQL (the
+specified production target) and SQLite. This was not a design accident: it made 70
+unit/integration tests possible without any external database dependency, and made a
+full live demonstration of the worker + dashboard possible in an environment with no
+Docker/Postgres installed. §5 covers why this portability is a development
+convenience, not a production substitute.</p>
+
+<h3>4.5 Configurable health rules (YAML), not hardcoded logic</h3>
+<p>The mapping from raw target fields (<code>fault_status_text</code>,
+<code>online_status_text</code>, ...) to canonical health states lives in
+<code>config/health_rules.yaml</code>, not in code. This directly satisfies the
+requirement that new fault vocabulary must be addable without a code change, and keeps
+the actual rule engine (<code>services/health_engine.py</code>) a thin, well-tested
+evaluator rather than a place where business logic and mechanism are entangled.</p>
+
+<h3>4.6 Stdlib-only authentication for the dashboard</h3>
+<p>Rather than adding <code>passlib</code>/<code>itsdangerous</code>/a full auth
+framework, password hashing uses PBKDF2-HMAC-SHA256 via Python's built-in
+<code>hashlib</code>, and session cookies are signed with <code>hmac</code> — both
+well-understood, dependency-free primitives appropriate for this application's actual
+threat model and scale. This keeps the dependency surface smaller without giving up
+cryptographic soundness.</p>
+
+<h3>4.7 Why not APScheduler</h3>
+<p>The original brief suggested APScheduler for polling. The implemented loop
+(<code>asyncio.sleep</code> inside <code>while True</code>) is simpler and sufficient
+for a single fixed interval; APScheduler's value (cron-style multiple schedules,
+misfire handling, job persistence) isn't needed yet at one monitoring profile with one
+interval. This is flagged in §8 as worth revisiting if multiple monitoring
+profiles/schedules are added later.</p>
+</section>
+
+<!-- ============================== 5. CONSTRAINTS ============================== -->
+<section class="section" id="s5">
+<h2>5. Constraints &amp; Current Limitations</h2>
+
+<h3>5.1 Inherent to the target application</h3>
+<div class="callout limit"><b>CAPTCHA requires a human, by design.</b> This is not a
+limitation to be engineered around — the original requirement explicitly forbids
+automating it. Any deployment must have a person available to complete login the first
+time and whenever a session genuinely expires.</div>
+<ul>
+<li><b>Single monitoring account/profile.</b> The current implementation supports one
+target-application login. Multiple target accounts (spec §29's "Monitoring Profile A /
+B") would need a profile abstraction not yet built.</li>
+<li><b>Fault vocabulary is unconfirmed.</b> No device in the connected account has
+reported a non-"Normal" <code>fault_type</code> or <code>material_shortage_status</code>
+during this build, so the rule table in <code>health_rules.yaml</code> has not been
+validated against a real-world fault string beyond the illustrative examples in the
+original spec. The dashboard screenshots in §6 use clearly-labeled synthetic rows to
+demonstrate the Warning/Malfunction badges for this reason.</li>
+<li><b>DOM-scrape fallback is unverified in practice.</b> It exists in
+<code>target_client.py</code> for resilience if the JSON API ever breaks structurally,
+but has never actually been exercised against a real failure — the JSON API path has
+been reliable throughout.</li>
+</ul>
+
+<h3>5.2 Data layer</h3>
+<div class="callout limit"><b>Real PostgreSQL has never been used.</b> Every DB-touching
+component targets PostgreSQL and is written against the real
+<code>postgresql+psycopg2</code> driver, but this build environment has neither Docker
+nor a native Postgres install. All verification — 70 automated tests plus the live demo
+in §7 — used SQLite. See the dedicated discussion below.</div>
+<p>Concretely observed during this build, not theoretical:</p>
+<ul>
+<li><b>Foreign-key enforcement is off by default in SQLite.</b> A test insert of a
+<code>fault_incident</code> row referencing a non-existent <code>equipment_id</code>
+succeeded with no error under the current SQLite setup (no
+<code>PRAGMA foreign_keys=ON</code> is issued). PostgreSQL enforces this by default,
+unconditionally.</li>
+<li><b>Single-writer locking.</b> SQLite allows exactly one writer at a time on the
+whole file. This build already runs the worker and the dashboard as two concurrent
+processes against one file; at the spec's target scale (up to 100 dashboard users, each
+auto-refreshing every 5 seconds) this access pattern needs PostgreSQL's MVCC, where
+readers and writers don't block each other.</li>
+<li><b>No native JSON/ENUM types in use.</b> The schema deliberately avoids
+PostgreSQL-specific types to stay SQLite-portable, which means the target API's richer
+<code>this_fault</code> per-component detail (see the integration spec) is not
+currently persisted anywhere durable — only the flat <code>fault_type</code> string is
+stored on each incident.</li>
+<li><b>No Alembic migrations.</b> Tables are created via
+<code>Base.metadata.create_all()</code>. Fine for one evolving development schema;
+not appropriate for a production cutover with existing data.</li>
+</ul>
+
+<h3>5.3 Alerting</h3>
+<ul>
+<li><b>No real email has been sent.</b> The SMTP send path is unit-tested with
+<code>smtplib</code> mocked; no SMTP credentials were available in this environment to
+send an actual message.</li>
+<li><b>No cross-cycle cooldown beyond incident-level dedup.</b> An incident is
+guaranteed exactly one "opened" alert and, on escalation, one further alert — but there
+is no separate configurable cooldown window (e.g. "don't alert on the same equipment
+more than once per hour regardless of incident boundaries").</li>
+</ul>
+
+<h3>5.4 Web / security</h3>
+<ul>
+<li><b>No CSRF token on mutating forms.</b> Login, subscription, and user-management
+POST endpoints rely on the session cookie's <code>SameSite=Lax</code> attribute (which
+already blocks the cookie from being sent on cross-site POST requests) rather than an
+explicit per-request CSRF token. This is meaningful protection, but not a complete
+substitute for one.</li>
+<li><b>No rate limiting</b> on the login endpoint or any API route.</li>
+<li><b>First admin requires shell access.</b> <code>db/seed_admin.py</code> must be run
+from a terminal — there is no in-app "first run setup" flow.</li>
+<li><b>Fixed 7-day session lifetime</b>, not currently configurable via <code>.env</code>.</li>
+</ul>
+
+<h3>5.5 Operational</h3>
+<ul>
+<li><b>No retry-with-backoff within a single poll cycle.</b> A transient failure marks
+that cycle's <code>MonitoringRun</code> as <code>FAILED</code> and waits for the next
+scheduled poll, rather than the spec's suggested 3-attempt backoff within the same
+cycle.</li>
+<li><b>No automatic recovery if the re-authentication browser itself crashes.</b></li>
+<li><b>Single-instance assumption.</b> Nothing in the design currently guards against
+two worker processes running concurrently against the same account (would cause
+duplicate polling and log noise, though the state-transition logic itself is
+idempotent enough not to create duplicate incidents).</li>
+</ul>
+</section>
+
+<!-- ============================== 6. SCREENSHOTS ============================== -->
+<section class="section" id="s6">
+<h2>6. Feature Walkthrough (Live Screenshots)</h2>
+<p>All screenshots below were captured with Playwright against the actual running
+application (a real <code>uvicorn</code> process, backed by a real poll loop) during
+this build — not recreated mockups. Three of the eight equipment rows visible
+(<code>[DEMO] Low Stock Unit</code>, <code>[DEMO] Faulty Unit</code>) are clearly-labeled
+synthetic additions, included specifically so every health-state badge could be
+demonstrated (see §5.1 on why no real fault has occurred yet). The other six rows —
+NEXUS, PNR, Gravity, REFRESH-1, REFRESHA 2, Warehouse — are the real fleet.</p>
+
+<div class="figure">
+  <img src="assets/01_login.png" alt="Login page">
+  <div class="cap">Figure 3 — Login page. Session-based authentication, distinct from the target application's own credentials.</div>
+</div>
+
+<div class="figure">
+  <img src="assets/02_dashboard.png" alt="Fleet overview dashboard">
+  <div class="cap">Figure 4 — Fleet overview: monitoring status panel, health-state counts, and the full equipment table
+  with colored badges. Note "Target Session: AUTHENTICATED" and a live poll interval of 10s — this is a running system, not a static page.</div>
+</div>
+
+<div class="figure">
+  <img src="assets/03_equipment_detail.png" alt="Equipment detail page">
+  <div class="cap">Figure 5 — Equipment detail: current health, incident summary, historical snapshot timeline, and full incident history for one device.</div>
+</div>
+
+<div class="figure">
+  <img src="assets/04_active_faults.png" alt="Active faults list">
+  <div class="cap">Figure 6 — Active faults across the fleet, including the three genuinely offline devices (real data) and the two synthetic demo rows (Warning/Critical).</div>
+</div>
+
+<div class="figure">
+  <img src="assets/05_fault_detail.png" alt="Fault detail page">
+  <div class="cap">Figure 7 — Individual incident detail: equipment, exact preserved fault text, severity, detection time, and notification status.</div>
+</div>
+
+<div class="figure">
+  <img src="assets/06_subscriptions.png" alt="Alert subscriptions page">
+  <div class="cap">Figure 8 — Per-user alert subscription management: subscribe to specific equipment or all machines, filtered by severity.</div>
+</div>
+
+<div class="figure">
+  <img src="assets/07_users.png" alt="Admin user management page">
+  <div class="cap">Figure 9 — Admin-only user management. Password hashes are never rendered here or anywhere else in the UI.</div>
+</div>
+</section>
+
+<!-- ============================== 7. TESTING ============================== -->
+<section class="section" id="s7">
+<h2>7. Testing &amp; Live Verification Summary</h2>
+
+<h3>7.1 Automated tests</h3>
+<table>
+<tr><th>Test file</th><th>Count</th><th>Covers</th></tr>
+<tr><td><code>test_health_engine.py</code></td><td>11</td><td>Rule table: each spec example, priority order, case-insensitivity, UNKNOWN fallback</td></tr>
+<tr><td><code>test_state_manager.py</code></td><td>10</td><td>Incident open/escalate/resolve; reproduces the spec's own "4 faults, 1 alert" worked example exactly</td></tr>
+<tr><td><code>test_notification_service.py</code></td><td>6</td><td>SMTP interaction (mocked), console fallback, credentials never logged</td></tr>
+<tr><td><code>test_alert_engine.py</code></td><td>12</td><td>Recipient resolution matrix: admin/subscription/severity/equipment-scoping/dedup</td></tr>
+<tr><td><code>test_lightweight_client.py</code></td><td>14</td><td>Cookie loading, redirect-to-login detection, pagination, error classification — via <code>httpx.MockTransport</code>, no real network</td></tr>
+<tr><td><code>test_backend.py</code></td><td>17</td><td>Auth, RBAC, all dashboard pages, subscription CRUD — via FastAPI's <code>TestClient</code></td></tr>
+<tr><td><b>Total</b></td><td><b>70</b></td><td>All passing at time of writing</td></tr>
+</table>
+
+<h3>7.2 Live verification performed</h3>
+<ul>
+<li><b>Real target connectivity (TC-001).</b> A numbered, documented live test case
+against the actual target site — authenticate (or reuse session), retrieve all
+equipment, report current status. Passing.</li>
+<li><b>Session reuse across time.</b> Confirmed on a second run, hours after the first,
+that the saved session was still valid and no re-login occurred.</li>
+<li><b>Browser elimination.</b> Ran the continuous poll loop against the real target and
+checked the OS process list (<code>Get-CimInstance Win32_Process</code>) across multiple
+full cycles — zero Playwright-owned Chromium processes existed at any point, confirming
+the hybrid lightweight-client design works as intended in practice, not just in theory.</li>
+<li><b>Real incident lifecycle.</b> During live runs, the worker correctly opened
+incidents for genuinely offline equipment (Warehouse, REFRESHA 2, REFRESH-1) and did not
+duplicate them on subsequent polls.</li>
+<li><b>Live dashboard.</b> A real <code>uvicorn</code> process was hit with real
+<code>curl</code> HTTP requests (not the in-process test client) — login, RBAC-gated
+pages, and a "Last Poll" timestamp confirmed to advance between two requests 12 seconds
+apart, proving end-to-end freshness rather than a cached/static response.</li>
+</ul>
+
+<h3>7.3 Not yet verified</h3>
+<table>
+<tr><th>Item</th><th>Reason</th></tr>
+<tr><td>Real PostgreSQL</td><td>No Docker/Postgres available in this build environment</td></tr>
+<tr><td>Real SMTP delivery</td><td>No SMTP credentials available in this build environment</td></tr>
+<tr><td>DOM-scrape fallback under a real API failure</td><td>The JSON API path has not failed during this build</td></tr>
+<tr><td>Behavior under a genuine target-side fault</td><td>No real fault has occurred on the connected account</td></tr>
+</table>
+</section>
+
+<!-- ============================== 8. PENDING ============================== -->
+<section class="section" id="s8">
+<h2>8. Pending Features / Roadmap</h2>
+
+<h3>8.1 Immediate — closing verification gaps</h3>
+<ul>
+<li>Run the full stack against real PostgreSQL (<code>docker compose up -d &amp;&amp;
+python -m db.init_db</code>) once Docker/Postgres is available.</li>
+<li>Configure real SMTP credentials and confirm an actual email is delivered end to end.</li>
+</ul>
+
+<h3>8.2 Phase 6 — Production hardening (not started)</h3>
+<ul>
+<li>Alembic migrations, replacing <code>Base.metadata.create_all()</code>.</li>
+<li>Retry-with-backoff within a single poll cycle (3 attempts, 5s/10s waits, per the
+original spec) rather than deferring to the next scheduled poll on any transient failure.</li>
+<li>Browser crash/restart recovery for the re-authentication path.</li>
+<li>Structured logging, a health-check endpoint, and Prometheus/Grafana integration.</li>
+<li>Docker images for the worker and backend processes, plus an Nginx reverse proxy.</li>
+<li>A secrets manager in place of plain <code>.env</code> files.</li>
+<li>Database backups and a documented restore procedure.</li>
+<li>Rate limiting on the login endpoint and API routes.</li>
+<li>A CSRF token on mutating forms, on top of the existing <code>SameSite=Lax</code> protection.</li>
+<li>An in-app first-admin setup flow, replacing the current CLI-only <code>seed_admin.py</code>.</li>
+</ul>
+
+<h3>8.3 Feature gaps</h3>
+<ul>
+<li><b>Multiple monitoring profiles</b> (more than one target account), as described in
+the original spec's scale section.</li>
+<li><b>Rich per-component fault detail.</b> The target API's <code>this_fault</code>
+field (individual motor/sensor-level fault flags) is a strong candidate for a JSONB
+column once on PostgreSQL — currently unused beyond the flat <code>fault_type</code> string.</li>
+<li><b>Confirmed real-world health-rule vocabulary</b> — the current rule table is
+correct against the spec's illustrative examples but has not been validated against an
+actual observed fault from this target account.</li>
+<li><b>Configurable session lifetime</b> for dashboard logins (currently a fixed 7 days).</li>
+<li><b>Optional Next.js frontend</b>, layered on the existing <code>backend/api/</code>
+routes, if still wanted after using the server-rendered version.</li>
+<li><b>A per-equipment/severity notification cooldown window</b>, independent of
+incident boundaries.</li>
+</ul>
+</section>
+
+<!-- ============================== APPENDIX A ============================== -->
+<section class="section" id="appa">
+<h2>Appendix A — Tool &amp; Technology Reference</h2>
+<table>
+<thead>
+<tr><th style="width:19%">Tool</th><th style="width:11%">Version</th><th style="width:16%">Category</th><th>Key properties / why used here</th></tr>
+</thead>
+<tbody>
+<tr><td>Python</td><td>3.10</td><td>Runtime</td><td>Async support, broad library ecosystem, single language across worker + backend.</td></tr>
+<tr><td>Playwright</td><td>1.47.0</td><td>Browser automation</td><td>Cross-browser automation library; used here exclusively for the CAPTCHA login flow and as a DOM-scrape fallback — not for steady-state polling.</td></tr>
+<tr><td>httpx</td><td>0.27.2</td><td>HTTP client</td><td>Async-native HTTP client with a cookie jar and redirect handling; powers all steady-state polling (no browser) and FastAPI's test client.</td></tr>
+<tr><td>FastAPI</td><td>0.115.0</td><td>Web framework</td><td>Async, type-hint-driven request validation, automatic OpenAPI docs, dependency-injection system used for auth/RBAC/DB session wiring.</td></tr>
+<tr><td>Uvicorn</td><td>0.31.0</td><td>ASGI server</td><td>Serves the FastAPI app; <code>[standard]</code> extras include <code>uvloop</code>/<code>httptools</code> for performance.</td></tr>
+<tr><td>Jinja2</td><td>3.1.4</td><td>Templating</td><td>Server-side HTML rendering for the dashboard — no client build step required.</td></tr>
+<tr><td>python-multipart</td><td>0.0.12</td><td>Web</td><td>Required by FastAPI/Starlette to parse HTML form POST bodies (login, user/subscription forms).</td></tr>
+<tr><td>SQLAlchemy</td><td>2.0.35</td><td>ORM</td><td>Declarative models + Core; the same model definitions run against both PostgreSQL and SQLite by using only portable column types.</td></tr>
+<tr><td>psycopg2-binary</td><td>2.9.9</td><td>DB driver</td><td>Synchronous PostgreSQL driver used by SQLAlchemy for the production database target.</td></tr>
+<tr><td>PostgreSQL</td><td>16 (docker image)</td><td>Database</td><td>Specified production RDBMS. ACID, MVCC (non-blocking concurrent readers/writers), enforced foreign keys by default, native JSON/ENUM types.</td></tr>
+<tr><td>SQLite</td><td>bundled (Python stdlib)</td><td>Database</td><td>Embedded, file-based; used for the automated test suite and the local/demo run described in this report. Not the production target — see §5.2.</td></tr>
+<tr><td>PyYAML</td><td>6.0.2</td><td>Config</td><td>Loads <code>config/health_rules.yaml</code> — keeps health-evaluation rules editable without a code change.</td></tr>
+<tr><td>python-dotenv</td><td>1.0.1</td><td>Config</td><td>Loads <code>.env</code> into process environment variables; keeps all secrets out of source code.</td></tr>
+<tr><td>pytest</td><td>8.3.3</td><td>Testing</td><td>Test runner for all 70 unit/integration tests.</td></tr>
+<tr><td>pytest-asyncio</td><td>0.24.0</td><td>Testing</td><td>Enables <code>async def</code> test functions (used by the lightweight-client tests).</td></tr>
+<tr><td>hashlib / hmac / secrets (stdlib)</td><td>—</td><td>Security</td><td>PBKDF2-HMAC-SHA256 password hashing and HMAC-signed session cookies — no external auth dependency.</td></tr>
+<tr><td>smtplib / email (stdlib)</td><td>—</td><td>Alerting</td><td>SMTP email delivery — no external mail library required.</td></tr>
+<tr><td>Docker / docker-compose</td><td>—</td><td>Infrastructure</td><td>Containerized local PostgreSQL for development, as specified in <code>docker-compose.yml</code>.</td></tr>
+</tbody>
+</table>
+</section>
+
+<!-- ============================== APPENDIX B ============================== -->
+<section class="section" id="appb">
+<h2>Appendix B — Project File Structure</h2>
+<pre>discovery/inspect.py        One-off manual DOM/network capture tool
+docs/                        Integration spec, this report
+
+monitoring/
+  config.py                  env-driven settings (DB, SMTP, web, target)
+  models.py                  MonitoringState, EquipmentRecord, exceptions
+  selectors.py                target URLs / API paths / field maps
+  mapping.py                   raw-row → canonical-field mapping (shared)
+  lightweight_client.py        httpx-based client — steady-state polling
+  browser_manager.py          Playwright browser/context lifecycle
+  session_manager.py          session-aware auth (reuse-first)
+  target_client.py            Playwright client (login/CAPTCHA + fallback)
+  equipment_extractor.py      canonical rows → validated EquipmentRecord
+  validator.py                 zero-records guard
+  worker.py                    real poll-cycle entry point
+  poc_runner.py                Phase 2 connectivity demo
+
+db/
+  models.py                   equipment, snapshots, incidents, users, ...
+  base.py                     engine/session (incl. DATABASE_URL override)
+  init_db.py, seed_admin.py    setup CLIs
+
+config/health_rules.yaml      configurable health-evaluation rules
+
+services/
+  health_engine.py             raw fields → canonical HealthState
+  state_manager.py             incident dedup/escalation/resolution
+  notification_service.py      pluggable delivery channel
+  alert_engine.py               recipient resolution + message content
+
+backend/                      FastAPI dashboard
+  main.py, deps.py, security.py, templating.py
+  api/  auth.py, equipment.py, alerts.py, users.py, monitoring.py
+  templates/, static/          Jinja2 HTML, one stylesheet
+
+tests/                         70 automated tests + live test cases
+</pre>
+</section>
+
+<!-- ============================== APPENDIX C ============================== -->
+<section class="section" id="appc">
+<h2>Appendix C — State Vocabulary Glossary</h2>
+<p>Two entirely separate vocabularies are used throughout this application, and keeping
+them distinct is a core design rule (never let a technical failure masquerade as
+equipment health):</p>
+
+<h3>Equipment health states (what a machine is doing)</h3>
+<table>
+<tr><th style="width:20%">State</th><th>Meaning</th></tr>
+<tr><td><span class="badge b-healthy">HEALTHY</span></td><td>Status/network/fault/material all nominal.</td></tr>
+<tr><td><span class="badge b-warning">WARNING</span></td><td>Material shortage present, no active fault.</td></tr>
+<tr><td><span class="badge b-malfunction">MALFUNCTION</span></td><td>Fault type reported and not recognized as "no fault".</td></tr>
+<tr><td><span class="badge b-offline">OFFLINE</span></td><td>Network connection reported offline.</td></tr>
+<tr><td>UNKNOWN</td><td>A required field was missing or an unrecognized value was reported — deliberately <em>not</em> treated as a fault (requirement #28).</td></tr>
+</table>
+
+<h3>Monitoring/technical states (what the monitoring system is doing)</h3>
+<table>
+<tr><th style="width:26%">State</th><th>Meaning</th></tr>
+<tr><td><code>AUTHENTICATION_REQUIRED</code></td><td>Session invalid/expired and re-authentication could not complete.</td></tr>
+<tr><td><code>TARGET_UNAVAILABLE</code></td><td>The target application could not be reached.</td></tr>
+<tr><td><code>EXTRACTION_ERROR</code></td><td>Data was reachable but failed to parse/validate.</td></tr>
+<tr><td><code>MONITORING_ERROR</code></td><td>An unclassified failure in the monitoring pipeline itself.</td></tr>
+</table>
+<p class="small">None of the four technical states above ever writes to an equipment's
+health state — they are recorded only on that cycle's <code>MonitoringRun</code> row.</p>
+</section>
+
+</body>
+</html>
