@@ -7,6 +7,30 @@ the verbatim request behind each of these, and
 [`docs/NEXT_SESSION_PROMPT.md`](docs/NEXT_SESSION_PROMPT.md) for the
 living, more granular version of "pending work."
 
+## [Unreleased] — since 2.0.0
+
+Two more admin-only tools, both explicitly restricted to the `admin`
+role (`operations`/`venue_partner` get `403`, same as `/users`):
+
+- **Cost Management** (`/costs`, `costs/` package) — log operating costs
+  against standard categories (Oranges, Glass, Straws, Sealing Films,
+  Staff Salaries, Rent, Cleaning Items) or a custom one via "Others";
+  vendor name is skipped for Staff Salaries and defaults to a filterable
+  `"UNSPECIFIED"` placeholder (not a bare NULL) if left blank elsewhere.
+  Summarized over Daily/Weekly/Monthly/YTD or a **user-provided custom
+  date range**, with independent breakdown by category/vendor/item name.
+- **Staff & Leave Management** (`/staff`, `staff/` package) — a staff
+  roster with employment start/end dates, leaves logged by the admin on
+  a staff member's behalf, and a monthly summary that explicitly
+  highlights any staff with more than 2 leave days that month (correctly
+  clipping leaves that span a month boundary).
+- `backend/period_utils.py` extracted from Order Summary's period-range
+  logic (now shared by both features) and gained a `custom` period —
+  Order Summary can use it too, though its UI doesn't expose it yet.
+
+See README's "Cost Management and Staff & Leave Management" section for
+the full picture. 179/179 tests passing.
+
 ## [2.0.0] — 2026-08-24
 
 Everything built on top of the original equipment-monitoring app (1.0.0):

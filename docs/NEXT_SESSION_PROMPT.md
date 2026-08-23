@@ -151,6 +151,24 @@ orange/cream palette, Poppins type — with a working dark/light toggle
 FastAPI+Jinja2 backend throughout; no JS framework/build step was added
 (explicit user choice — "restyle only" over a full React rewrite).**
 
+**Also new: two more admin-only tabs (v2.0 -> "next version" work,
+2026-08-24), both gated by `require_admin`, not a new role.** Cost
+Management (`/costs`, `costs/` package) logs costs against standard or
+custom categories, defaults blank vendor to a filterable
+`"UNSPECIFIED"` placeholder (skipped entirely for Staff Salaries), and
+summarizes over Daily/Weekly/Monthly/YTD/**custom** date range with
+category/vendor/item breakdown (`costs/rollup.py` — sums, no weighted
+averages needed). Staff & Leave Management (`/staff`, `staff/` package)
+tracks a roster (employment start/end date) and admin-logged leave
+periods, highlighting anyone with >2 leave days in a selected month
+(`staff/leave_summary.py`, correctly clips a leave spanning a month
+boundary rather than double-counting or misattributing it). Extracted
+`backend/period_utils.py` from Order Summary's period logic so Cost
+Management reuses it (and Order Summary picked up a `custom` period
+option for free, though its UI doesn't expose it yet — worth adding if
+wanted). 179/179 tests passing; see README's "Cost Management and Staff
+& Leave Management" section and `CHANGELOG.md`'s Unreleased entry.
+
 ## Architecture (one paragraph)
 
 `monitoring/lightweight_client.py` (plain httpx) handles ALL steady-state
@@ -199,6 +217,9 @@ dashboard (chosen over Next.js — confirmed with the user; see README).
 - Confirm real-world fault/shortage vocabulary once (if) this account produces an actual non-"Normal" reading — current rule table is only validated against the spec's illustrative examples
 - Configurable dashboard session lifetime (fixed 7 days currently)
 - Optional Next.js frontend swap, if still wanted after using the server-rendered dashboard
+- Cost Management / Staff & Leave: no edit/delete on a cost entry, staff record, or leave once logged (a typo today means a new correcting entry, not a fix-in-place) — add if it becomes a real friction point
+- Cost Management has no trend chart (Order Summary's Chart.js pattern would drop in easily if wanted)
+- No bulk import for either (e.g. a CSV of historical costs/leaves) — everything's one entry at a time via the form
 
 ## How to just run it (see README/report §9 for full detail)
 

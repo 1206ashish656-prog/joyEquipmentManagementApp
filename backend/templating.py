@@ -3,6 +3,7 @@ router in backend/api/ so pages render consistently (spec section 21:
 clear visual indicators for health state)."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
@@ -13,6 +14,9 @@ from db.models import HealthState
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["home_url"] = home_url_for
+# Not registered by core Jinja2 (only by Flask) -- needed for safely
+# embedding a Python string/value as a JS literal in an inline <script>.
+templates.env.filters["tojson"] = json.dumps
 
 _HEALTH_EMOJI = {
     HealthState.HEALTHY: "🟢",

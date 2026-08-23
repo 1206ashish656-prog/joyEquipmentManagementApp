@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 from datetime import date as date_cls
-from datetime import datetime, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Request
@@ -18,13 +17,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.deps import get_db, require_venue_partner
+from backend.period_utils import PERIODS, period_range
 from backend.templating import templates
 from db.models import OrderSummary, OrderSummaryRun, OrderSummaryRunStatus, User, VenueMapping
 from orders.rollup import rollup
 
 router = APIRouter()
-
-PERIODS = ("daily", "weekly", "monthly", "ytd")
 
 
 class _DecimalEncoder(json.JSONEncoder):
@@ -48,25 +46,6 @@ def _venue_machines(db: Session, venue_provider: str) -> list[str]:
         select(VenueMapping.machine_name).where(func.lower(VenueMapping.venue_provider) == venue_provider.lower())
     ).scalars().all()
     return list(rows)
-
-
-def _period_range(period: str, as_of: str) -> tuple[str, str]:
-    d = datetime.strptime(as_of, "%Y-%m-%d").date()
-    if period == "daily":
-        start = end = d
-    elif period == "weekly":
-        start = d - timedelta(days=d.weekday())  # Monday
-        end = start + timedelta(days=6)
-    elif period == "monthly":
-        start = d.replace(day=1)
-        next_month = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
-        end = next_month - timedelta(days=1)
-    elif period == "ytd":
-        start = d.replace(month=1, day=1)
-        end = d
-    else:
-        start = end = d
-    return start.isoformat(), end.isoformat()
 
 
 def _time_series_payload(rows: list[OrderSummary], split_by_machine: bool) -> dict:
@@ -123,7 +102,7 @@ def orders_summary(
     latest = _latest_available_date(db)
     as_of = q.get("as_of") or latest or date_cls.today().isoformat()
 
-    start, end = _period_range(period, as_of)
+    start, end = period_range(period, as_of, start=q.get("start"), end=q.get("end"))
     query = select(OrderSummary).where(OrderSummary.date >= start, OrderSummary.date <= end)
 
     # Venue partners are scoped to their own venue's machine(s) —

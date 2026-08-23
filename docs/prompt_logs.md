@@ -132,3 +132,20 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 **20a.** `[choice]` Admin only *(answer to "Should Revenue and Oranges/Glass be visible only to admins... or added... for everyone?")*
 
 **20b.** `[choice]` number_of_orders (Recommended) *("Number of glasses" definition)*
+
+**21.**
+> The application is looking promising till now. Log the current application status as a separate commit describing v2.0 completed and list down pending elements
+
+**22.** *(Sent mid-turn, while the v2.0 commit above was still being worked on — surfaced to Claude alongside a tool result rather than as its own turn; the harness's own framing, not paraphrased here.)*
+> Let's begin with next version of this application that aims to add few more features especially to admin panel. Some of the features to be added are as follows:
+
+**23.**
+> Restrict this feature to admin only
+> 1) Cost Management tool
+> - cost management tool that allows admin to add raw material cost across standard categories like oranges, glass, straws, sealing films, staff salaries, rent, cleaning items & others. If admin select other, ask admin to specify the category explicitly
+> - ask vendor name to admin in case any category selected other than staff salaries. If not added, add simple arbitrary name like ab123 that can be easily filtered later
+> - Summarize cost incurred at user provided time period or standard option like ytd, monthly, weekly or daily. Allow user to select breakdown by vendor and/or item name
+> 2) Staff leave management tool
+> - maintain staff database with employment start and end date
+> - Admin add leaves on behalf of staff in the system
+> - if any staff take leaves more than 2 days in a month, highlight that staff explicitly

@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Cost Management — Equipment Monitor{% endblock %}
+{% block content %}
+<h1>Cost Management</h1>
+
+{% if not has_data %}
+<div class="callout">No cost entries logged for {{ start }} — {{ end }} yet. Use the form below to add one.</div>
+{% endif %}
+
+<section class="status-panel">
+  <form method="get" action="/costs" class="order-filter-form" id="filter-form">
+    <div class="filter-group">
+      <label>Period
+        <select name="period" id="period-select">
+          {% for p in ["daily", "weekly", "monthly", "ytd", "custom"] %}
+          <option value="{{ p }}" {% if p == period %}selected{% endif %}>{{ "Custom range" if p == "custom" else p|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label id="as-of-field">As of
+        <input type="date" name="as_of" value="{{ as_of }}">
+      </label>
+      <label id="start-field" style="display:none;">Start
+        <input type="date" name="start" value="{{ start }}">
+      </label>
+      <label id="end-field" style="display:none;">End
+        <input type="date" name="end" value="{{ end }}">
+      </label>
+    </div>
+    <div class="filter-group">
+      <label class="checkbox-label"><input type="checkbox" name="by_category" value="1" {% if by_category %}checked{% endif %}> Break down by category</label>
+      <label class="checkbox-label"><input type="checkbox" name="by_vendor" value="1" {% if by_vendor %}checked{% endif %}> Break down by vendor</label>
+      <label class="checkbox-label"><input type="checkbox" name="by_item" value="1" {% if by_item %}checked{% endif %}> Break down by item name</label>
+      {% if not by_category %}<input type="hidden" name="by_category" value="0">{% endif %}
+    </div>
+    <button type="submit">Apply</button>
+  </form>
+  <table class="kv" style="margin-top:10px;">
+    <tr><td>Date range</td><td>{{ start }}{% if end != start %} to {{ end }}{% endif %}</td></tr>
+    <tr><td>Breakdown</td><td>{{ group_by_labels|join(", ") }}</td></tr>
+  </table>
+</section>
+
+{% if overall_row %}
+<section class="counts" style="grid-template-columns: repeat(2, 1fr); max-width: 460px;">
+  <div class="count-tile"><div class="n">₹{{ "%.2f"|format(overall_row.total_amount) }}</div><div class="label">Total Cost</div></div>
+  <div class="count-tile"><div class="n">{{ overall_row.entry_count }}</div><div class="label">Entries</div></div>
+</section>
+{% endif %}
+
+<section>
+  <h2>Breakdown</h2>
+  <table class="equipment-table">
+    <thead>
+      <tr>
+        {% if by_category %}<th>Category</th>{% endif %}
+        {% if by_vendor %}<th>Vendor</th>{% endif %}
+        {% if by_item %}<th>Item</th>{% endif %}
+        <th>Total Amount</th><th>Entries</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in table_rows %}
+      <tr>
+        {% if by_category %}<td>{{ row.key.category }}</td>{% endif %}
+        {% if by_vendor %}<td>{{ row.key.vendor_name or "—" }}</td>{% endif %}
+        {% if by_item %}<td>{{ row.key.item_name }}</td>{% endif %}
+        <td>₹{{ "%.2f"|format(row.total_amount) }}</td>
+        <td>{{ row.entry_count }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">No cost entries in this period.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Add Cost Entry</h2>
+  <form method="post" action="/costs" class="stacked-form" id="add-cost-form" style="margin: 0;">
+    <label>Date<input type="date" name="date" value="{{ today }}" required></label>
+    <label>Category
+      <select name="category" id="category-select">
+        {% for c in standard_categories %}
+        <option value="{{ c }}">{{ c }}</option>
+        {% endfor %}
+        <option value="Others">Others (specify)</option>
+      </select>
+    </label>
+    <label id="custom-category-field" style="display:none;">Specify category
+      <input type="text" name="custom_category" placeholder="e.g. Software Subscription">
+    </label>
+    <label id="vendor-field">Vendor name <span style="font-weight:400;color:var(--muted);">(optional — defaults to "{{ "UNSPECIFIED" }}" if left blank)</span>
+      <input type="text" name="vendor_name" placeholder="e.g. Fresh Farms Co.">
+    </label>
+    <label>Item / description<input type="text" name="item_name" placeholder="e.g. 50kg Valencia oranges" required></label>
+    <label>Amount (₹)<input type="number" step="0.01" min="0" name="amount" required></label>
+    <button type="submit">Add Entry</button>
+  </form>
+</section>
+
+<script>
+  (function () {
+    var periodSelect = document.getElementById("period-select");
+    var asOfField = document.getElementById("as-of-field");
+    var startField = document.getElementById("start-field");
+    var endField = document.getElementById("end-field");
+    function syncPeriod() {
+      var custom = periodSelect.value === "custom";
+      asOfField.style.display = custom ? "none" : "flex";
+      startField.style.display = custom ? "flex" : "none";
+      endField.style.display = custom ? "flex" : "none";
+    }
+    periodSelect.addEventListener("change", syncPeriod);
+    syncPeriod();
+
+    var categorySelect = document.getElementById("category-select");
+    var customCategoryField = document.getElementById("custom-category-field");
+    var vendorField = document.getElementById("vendor-field");
+    var staffSalariesCategory = {{ staff_salaries_category | tojson }};
+    function syncCategory() {
+      customCategoryField.style.display = categorySelect.value === "Others" ? "flex" : "none";
+      vendorField.style.display = categorySelect.value === staffSalariesCategory ? "none" : "flex";
+    }
+    categorySelect.addEventListener("change", syncCategory);
+    syncCategory();
+  })();
+</script>
+{% endblock %}

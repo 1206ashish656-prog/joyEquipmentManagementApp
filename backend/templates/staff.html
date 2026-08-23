@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Staff & Leaves — Equipment Monitor{% endblock %}
+{% block content %}
+<h1>Staff & Leave Management</h1>
+
+<section class="status-panel">
+  <form method="get" action="/staff" class="order-filter-form">
+    <div class="filter-group">
+      <label>Month
+        <select name="month">
+          {% for m in range(1, 13) %}
+          <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ "%02d"|format(m) }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Year
+        <input type="number" name="year" value="{{ year }}" min="2020" max="2100" style="width:90px;">
+      </label>
+    </div>
+    <button type="submit">View month</button>
+  </form>
+</section>
+
+<section>
+  <h2>Leave Summary — {{ "%02d"|format(month) }}/{{ year }}</h2>
+  <p class="callout" style="border-left-color: var(--malfunction);">Staff with more than 2 leave days this month are highlighted below.</p>
+  <table class="equipment-table">
+    <thead><tr><th>Staff</th><th>Days on Leave</th><th></th></tr></thead>
+    <tbody>
+      {% for row in leave_summary %}
+      <tr{% if row.highlighted %} style="background: var(--malfunction-bg);"{% endif %}>
+        <td>{{ row.staff.name }}</td>
+        <td>{{ row.days_on_leave }}</td>
+        <td>{% if row.highlighted %}<span class="badge badge-malfunction">⚠ Exceeds 2 days</span>{% endif %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3">No staff on record yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Staff Roster</h2>
+  <table class="equipment-table">
+    <thead><tr><th>Name</th><th>Employment Start</th><th>Employment End</th><th></th></tr></thead>
+    <tbody>
+      {% for s in staff_list %}
+      <tr>
+        <td>{{ s.name }}</td>
+        <td>{{ s.employment_start_date }}</td>
+        <td>{{ s.employment_end_date or "— active —" }}</td>
+        <td>
+          {% if not s.employment_end_date %}
+          <form method="post" action="/staff/{{ s.id }}/offboard" class="checkbox-label" style="gap:6px;">
+            <input type="date" name="end_date" value="{{ today }}" required style="padding:4px 6px;border:1px solid var(--border);border-radius:6px;">
+            <button type="submit" class="linklike">Mark as left</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">No staff added yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<div class="detail-grid">
+  <section>
+    <h2>Add Staff</h2>
+    <form method="post" action="/staff" class="stacked-form">
+      <label>Name<input type="text" name="name" required></label>
+      <label>Employment start date<input type="date" name="employment_start_date" value="{{ today }}" required></label>
+      <label>Employment end date (leave blank if still active)<input type="date" name="employment_end_date"></label>
+      <button type="submit">Add Staff</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>Log a Leave</h2>
+    {% if active_staff %}
+    <form method="post" action="/staff/leaves" class="stacked-form">
+      <label>Staff
+        <select name="staff_id">
+          {% for s in active_staff %}
+          <option value="{{ s.id }}">{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Start date<input type="date" name="start_date" value="{{ today }}" required></label>
+      <label>End date<input type="date" name="end_date" value="{{ today }}" required></label>
+      <label>Reason (optional)<input type="text" name="reason"></label>
+      <button type="submit">Log Leave</button>
+    </form>
+    {% else %}
+    <p class="callout">Add an active staff member first before logging a leave.</p>
+    {% endif %}
+  </section>
+</div>
+
+<section>
+  <h2>Recent Leaves</h2>
+  <table class="equipment-table">
+    <thead><tr><th>Staff</th><th>Start</th><th>End</th><th>Reason</th></tr></thead>
+    <tbody>
+      {% for leave, s in recent_leaves %}
+      <tr>
+        <td>{{ s.name }}</td>
+        <td>{{ leave.start_date }}</td>
+        <td>{{ leave.end_date }}</td>
+        <td>{{ leave.reason or "—" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">No leaves logged yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}

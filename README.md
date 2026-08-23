@@ -351,6 +351,40 @@ schema patch (this project has no Alembic yet — see Phase 6 in
 venue_provider VARCHAR(255)`, then `python -m db.seed_venue_mapping`
 (which also creates the new `venue_mapping` table via `create_all()`).
 
+## Cost Management and Staff & Leave Management (admin-only)
+
+Two more admin-only tabs, both gated by the existing `require_admin`
+dependency (not a new role — `operations`/`venue_partner` get `403` on
+every route below, same as `/users`).
+
+**Cost Management** (`/costs`, `costs/` package) — logs raw-material/
+operating costs against a standard category list (`db/models.py`'s
+`STANDARD_COST_CATEGORIES`: Oranges, Glass, Straws, Sealing Films, Staff
+Salaries, Rent, Cleaning Items) or a custom one — picking "Others" in the
+form asks for the real category name, and *that* text is what's stored,
+not the literal word "Others". Vendor name is skipped entirely for Staff
+Salaries (not applicable); for every other category, a blank vendor
+becomes `"UNSPECIFIED"` (`db/models.py`'s `UNSPECIFIED_VENDOR`) rather
+than a bare `NULL` — a deliberate, filterable placeholder, not silently
+losing the fact that no vendor was given. Summarized over
+Daily/Weekly/Monthly/YTD **or a user-provided custom date range** (the
+`period=custom&start=…&end=…` option — `backend/period_utils.py`, shared
+with Order Summary, which now also supports it), with independent
+breakdown by category/vendor/item name (`costs/rollup.py`, sums `amount`
+and counts entries — no weighted averages needed here, unlike order
+pricing).
+
+**Staff & Leave Management** (`/staff`, `staff/` package) — a staff
+roster (name, employment start date, optional end date — offboarding
+sets the end date rather than deleting the row, so past leave stays
+attributable) and leaves logged by the admin on a staff member's behalf,
+as a `[start_date, end_date]` period rather than one row per day.
+`staff/leave_summary.py` computes days-on-leave per staff for a selected
+month, **clipping a leave that spans a month boundary to the month being
+viewed** (so it's correctly split between two months' totals, not
+double-counted or misattributed), and highlights anyone with more than 2
+days that month in the UI.
+
 ## Architecture (current pieces)
 
 ```

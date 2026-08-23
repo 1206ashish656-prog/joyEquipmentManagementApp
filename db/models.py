@@ -311,3 +311,74 @@ class VenueMapping(Base):
     venue_provider: Mapped[str] = mapped_column(String(255), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+
+# --- Cost management (admin-only — see backend/api/costs.py) ---
+#
+# Standard categories are UI suggestions, not a DB-enforced enum: picking
+# "Others" in the form asks the admin to type the real category, and
+# THAT text is what gets stored — so `category` stays a plain string,
+# same rationale as health_state/role above (portable, and here also
+# genuinely open-ended by design).
+
+STANDARD_COST_CATEGORIES = (
+    "Oranges", "Glass", "Straws", "Sealing Films", "Staff Salaries", "Rent", "Cleaning Items",
+)
+
+# Vendor is meaningless for Staff Salaries (no vendor to name) and is
+# simply not asked/stored for that category. For every other category, a
+# blank vendor still needs *something* filterable later rather than a
+# NULL that's easy to lose track of — this is that placeholder.
+UNSPECIFIED_VENDOR = "UNSPECIFIED"
+
+
+class CostEntry(Base):
+    __tablename__ = "cost_entry"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    date: Mapped[str] = mapped_column(String(10), index=True)  # 'YYYY-MM-DD', the cost's own date (admin-set, may be backdated)
+    category: Mapped[str] = mapped_column(String(255), index=True)
+    # NULL only for category == "Staff Salaries" (vendor isn't applicable
+    # there); UNSPECIFIED_VENDOR for every other category left blank.
+    vendor_name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    item_name: Mapped[str] = mapped_column(String(255), index=True)  # e.g. "50kg Valencia oranges"
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+# --- Staff & leave management (admin-only — see backend/api/staff.py) ---
+
+
+class Staff(Base):
+    __tablename__ = "staff"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255))
+    employment_start_date: Mapped[str] = mapped_column(String(10))  # 'YYYY-MM-DD'
+    # NULL = still employed. Set on offboarding, never deleted, so past
+    # leave records stay attributable to a real employment period.
+    employment_end_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    leaves: Mapped[list["StaffLeave"]] = relationship(back_populates="staff", cascade="all, delete-orphan")
+
+
+class StaffLeave(Base):
+    """One row per leave PERIOD (not per day) — an admin logging "3 days
+    off starting the 5th" is one row, not three. Day counts for the
+    >2-days-in-a-month highlight (staff/leave_summary.py) are computed by
+    clipping [start_date, end_date] to the month in question, so a leave
+    spanning a month boundary is correctly split between both months."""
+
+    __tablename__ = "staff_leave"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    staff_id: Mapped[int] = mapped_column(ForeignKey("staff.id"), index=True)
+    start_date: Mapped[str] = mapped_column(String(10))  # 'YYYY-MM-DD'
+    end_date: Mapped[str] = mapped_column(String(10))  # 'YYYY-MM-DD', inclusive, >= start_date
+    reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    staff: Mapped["Staff"] = relationship(back_populates="leaves")
