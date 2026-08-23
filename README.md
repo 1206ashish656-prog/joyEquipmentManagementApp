@@ -83,7 +83,7 @@ section for the full story.
 
 This dev environment has neither Docker/Postgres nor SMTP credentials
 available. Everything DB- and email-touching is written against the real
-`postgresql+psycopg2` driver / real `smtplib`, and verified via **70
+`postgresql+psycopg2` driver / real `smtplib`, and verified via **73
 passing unit/integration tests** (SQLite in place of Postgres, mocked
 `smtplib`) — including one **live** run: a real `uvicorn` server + a real
 `monitoring.worker --loop` process, both pointed at a local SQLite file
@@ -99,6 +99,31 @@ python -m db.seed_admin --name "Your Name" --email you@example.com
 python -m monitoring.worker --loop     # continuous polling against the real target
 uvicorn backend.main:app --reload      # then open http://localhost:8000
 ```
+
+### ⚠️ Operational constraint: the host machine must not sleep
+
+Both the worker and the dashboard are plain OS processes with no
+supervisor keeping them alive across power states. If the machine
+they're running on goes into **sleep/standby (S3) or hibernate, the
+processes are fully suspended — not slowed, paused** — no polling, no
+alerting, no dashboard responses to anyone, for the entire duration.
+Confirmed on the current dev machine (Windows, `powercfg /a`): only the
+traditional S3 standby is available (no "Modern Standby"/S0 Low Power
+Idle), which is the more severe case — the CPU stops entirely, so no
+background activity survives sleep at all.
+
+On wake, the worker resumes on its own (no crash, no corrupted state) and
+self-heals: if the target session expired during the gap,
+`is_session_valid()` detects it on the next poll and `_reauthenticate()`
+runs automatically (with `AUTO_SOLVE_CAPTCHA=true`, no human needed). Any
+request that fails because the network hasn't reconnected yet is
+classified as `TARGET_UNAVAILABLE`, never a fake equipment fault — but
+there is a genuine **monitoring gap for the sleep's entire duration**,
+which defeats the point of continuous monitoring.
+
+**This is only survivable for local/demo use.** For anything meant to run
+continuously, this needs to run somewhere that doesn't sleep — see the
+cloud-hosting bookmark in "Next steps" below.
 
 ### Frontend choice: FastAPI + Jinja2, not Next.js
 
@@ -320,6 +345,15 @@ only preserved in `EquipmentRecord.raw`/`FaultIncident`'s audit trail.
 
 ## Next steps (not yet implemented)
 
+- 🔖 **Bookmarked: host on an always-on cloud environment.** Needed to
+  fix the sleep/standby constraint above — the worker and dashboard need
+  to run somewhere that never suspends. Candidates once this is picked
+  up: a small always-on VM (the Docker images already planned for Phase
+  6 make this straightforward), or a managed container/PaaS platform
+  (e.g. a small persistent worker service + web service pair) using the
+  existing `docker-compose.yml` as the starting point for the worker
+  side and a managed Postgres instance in place of the local container.
+  Also closes the live-Postgres verification gap in the same move.
 - Close the live-Postgres/SMTP verification gap once infra is available
   (see "Known gap" above).
 - Phase 6: Alembic migrations, structured logging, retry-with-backoff

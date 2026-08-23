@@ -81,6 +81,14 @@ screenshots, tool appendix) also exists:
   Demo DB contains 6 real equipment rows plus 2 clearly `[DEMO]`-labeled
   synthetic rows (added for screenshot/badge coverage) — don't mistake
   those for real data if inspecting it.
+- **The whole app is currently running as a plain local process and
+  fully stops if this machine sleeps** (confirmed: only traditional S3
+  standby is available here, no Modern Standby — the CPU suspends
+  entirely, so there's a real monitoring gap for the sleep's duration,
+  not just a slowdown). Self-heals on wake (session re-auth is
+  automatic), but this is a genuine limitation for anything beyond
+  local/demo use. See README's "⚠️ Operational constraint" section — the
+  🔖 bookmarked fix is always-on cloud hosting (below).
 
 ## Architecture (one paragraph)
 
@@ -103,6 +111,14 @@ dashboard (chosen over Next.js — confirmed with the user; see README).
 **Do first — check environment, don't assume last session's constraints still hold:**
 1. Is Docker/Postgres available now? If yes: `docker compose up -d && python -m db.init_db`, run the worker + dashboard against it for real, and specifically re-verify the FK-enforcement/session-validity findings documented in the report hold on real Postgres too (SQLite quirks shouldn't apply, but confirm).
 2. Are real SMTP credentials available? If yes: set `SMTP_*` in `.env`, trigger a real incident (or use the `[DEMO]` synthetic-row pattern from `docs/report/capture_screenshots.py`'s sibling scripts), confirm actual email delivery end to end.
+3. 🔖 **Bookmarked: cloud hosting.** The app currently fully stops if its
+   host machine sleeps (see "Critical context" above) — a real
+   limitation, not yet acted on. If the user wants to move toward
+   continuous/production operation, this is the natural next move:
+   an always-on VM or managed container platform, using the existing
+   `docker-compose.yml` as the starting point and closing the Postgres
+   gap in the same move. Don't build this unprompted — raise it and let
+   the user decide when they want to tackle it.
 
 **Phase 6 — production hardening (pick based on what the user asks for; don't build all of this unprompted):**
 - Alembic migrations (replacing `Base.metadata.create_all()`)

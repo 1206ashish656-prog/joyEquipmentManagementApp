@@ -61,27 +61,39 @@
 
 <!-- ============================== COVER ============================== -->
 <section class="cover" style="min-height: 92vh; display:flex; flex-direction:column; justify-content:center;">
-  <div class="kicker">System Report — v2</div>
+  <div class="kicker">System Report — v3</div>
   <h1>Equipment Health Monitoring &amp; Alerting Application</h1>
   <p style="font-size:13pt; color:var(--muted); font-family:-apple-system,sans-serif; max-width:520px;">
     Session-aware monitoring, health evaluation, incident alerting, and a
     live web dashboard for a third-party equipment management application.
   </p>
   <div class="cover-meta">
-    <div><b>Report date:</b> 23 August 2026 (v2 — updated same day; see "What's new in v2")</div>
+    <div><b>Report date:</b> 23 August 2026 (v3 — updated same day; see "What's new")</div>
     <div><b>Target application:</b> jwintell.com (Equipment Management → Device Information)</div>
     <div><b>Prepared for:</b> Project owner / stakeholder review</div>
     <div><b>Status:</b> Phases 1–5 implemented and functionally verified live against the real
       target site, including a fully automated login (see §4.1/§5.1); Phase 6 (hardening) and
-      full Postgres/SMTP verification pending — see §8.</div>
+      full Postgres/SMTP verification pending — see §8. A newly documented operational
+      constraint (§5.5) and cloud-hosting bookmark (§8.1) are not yet acted on.</div>
   </div>
 </section>
 
-<!-- ============================== WHAT'S NEW IN V2 ============================== -->
+<!-- ============================== WHAT'S NEW ============================== -->
 <section class="section" id="whatsnew">
-<h2>What's New in v2</h2>
-<p>This version supersedes the same-day v1. Everything below was implemented and
-live-verified against the real target site after v1 was published.</p>
+<h2>What's New in v3</h2>
+<p>Documentation-only update — no code changed since v2.</p>
+<ul>
+<li><b>New documented constraint (§5.5):</b> the worker and dashboard fully stop if their
+host machine sleeps/hibernates — confirmed live via <code>powercfg /a</code> on the dev
+machine (traditional S3 standby only, the more severe case: the CPU suspends entirely, so
+there is a genuine monitoring gap for the sleep's whole duration, not just a slowdown). The
+system self-heals on wake (automatic re-authentication) but the gap itself isn't
+recoverable.</li>
+<li><b>New roadmap bookmark (§8.1):</b> host on an always-on cloud environment, which
+directly fixes the above and closes the Postgres verification gap in the same move.</li>
+</ul>
+
+<h3>What's New in v2 (for reference)</h3>
 <ul>
 <li><b>CAPTCHA login is now fully automated by explicit, account-owner authorization</b>
 (<code>AUTO_SOLVE_CAPTCHA</code>) — a deliberate, disclosed reversal of the original spec's
@@ -105,7 +117,7 @@ session-check fix).</li>
 <!-- ============================== TOC ============================== -->
 <section class="section">
 <h2>Table of Contents</h2>
-<p class="toc"><a href="#whatsnew">What's New in v2</a></p>
+<p class="toc"><a href="#whatsnew">What's New</a></p>
 <ol class="toc">
   <li><a href="#s1">Executive Summary</a></li>
   <li><a href="#s2">System Architecture</a></li>
@@ -673,6 +685,19 @@ two worker processes running concurrently against the same account (would cause
 duplicate polling and log noise, though the state-transition logic itself is
 idempotent enough not to create duplicate incidents).</li>
 </ul>
+
+<div class="callout limit"><b>The host machine must not sleep (v3 addition).</b> The
+worker and dashboard are plain OS processes with no supervisor keeping them alive
+across power states. Confirmed on the current dev machine via <code>powercfg /a</code>:
+only traditional S3 standby is available (no "Modern Standby"/S0 Low Power Idle), the
+more severe case — sleep suspends the CPU entirely, so <b>no background activity
+survives it at all</b>, not merely a slowdown. This produces a genuine monitoring gap
+for the sleep's full duration. On wake the worker resumes and self-heals on its own
+(a stale session is detected and re-authenticated automatically, since
+<code>AUTO_SOLVE_CAPTCHA=true</code> needs no human step) — but the gap itself is not
+recoverable; whatever happened to the equipment during that window was simply not
+observed. This is acceptable for local/demo use only. See §8's cloud-hosting
+bookmark.</div>
 </section>
 
 <!-- ============================== 6. SCREENSHOTS ============================== -->
@@ -812,6 +837,13 @@ contains live account data.</p>
 <li>Run the full stack against real PostgreSQL (<code>docker compose up -d &amp;&amp;
 python -m db.init_db</code>) once Docker/Postgres is available.</li>
 <li>Configure real SMTP credentials and confirm an actual email is delivered end to end.</li>
+<li>🔖 <b>Bookmarked (v3): host on an always-on cloud environment.</b> Directly addresses
+the sleep/standby constraint in §5.5 — the worker and dashboard need to run somewhere that
+never suspends. Candidates: a small always-on VM (the Docker images already planned below
+make this straightforward), or a managed container/PaaS platform (a small persistent
+worker service + web service pair) using the existing <code>docker-compose.yml</code> as
+the starting point for the worker side and a managed Postgres instance in place of the
+local container — closing the Postgres verification gap above in the same move.</li>
 </ul>
 
 <h3>8.2 Phase 6 — Production hardening (not started)</h3>
