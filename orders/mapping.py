@@ -81,7 +81,11 @@ def map_api_row_to_order(row: dict) -> OrderRecord:
         order_id=str(mapped.get("order_id") or ""),
         order_code=str(mapped.get("order_code") or ""),
         device_id=str(mapped.get("device_id") or ""),
-        device_app=str(mapped.get("device_app") or "UNKNOWN"),
+        # device.name is null on some raw order rows. Confirmed by the
+        # account owner (2026-08-24) that every such row is Nexus machine
+        # data — not an unidentifiable/mixed source — so the fallback maps
+        # straight to "NEXUS" rather than a generic "UNKNOWN" bucket.
+        device_app=str(mapped.get("device_app") or "NEXUS"),
         order_status=str(mapped.get("order_status") or "").strip(),
         payment_status=str(mapped.get("payment_status") or "").strip(),
         delivery_status=str(mapped.get("delivery_status") or "").strip(),

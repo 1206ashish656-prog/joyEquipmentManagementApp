@@ -62,18 +62,21 @@ is checked).
 2026-05-02 --end 2026-08-23` ran end to end, 114 days, all `SUCCESS`, zero
 failures (`data/demo.db`, git-ignored). Verified live via a headless
 screenshot of the YTD view with both breakdown and both charts on —
-22,881 orders, 5 distinct `device_app` values. Two real-data observations
-surfaced (not bugs, just worth knowing): a `UNKNOWN` device_app bucket
-(3,499 orders) — `orders/mapping.py`'s fallback when the raw API's
-`device.name` is null/missing for a row, i.e. genuinely present in the
-source data, not a mapping gap; and a `Warehouse` device_app with
+22,881 orders. `orders/mapping.py`'s `device_app` fallback (raw API's
+`device.name` null/missing for a row) originally mapped to `"UNKNOWN"`;
+**the account owner confirmed (2026-08-24) every such row is Nexus
+machine data**, so the fallback now maps straight to `"NEXUS"`. The 48
+already-backfilled days that had `UNKNOWN` rows (2026-05-03 through
+2026-06-21 — the account apparently didn't record `device.name` before
+~2026-06-22) were re-fetched and recomputed with `force=True`; zero
+`UNKNOWN` rows remain, NEXUS correctly consolidated to 8,030 orders. One
+remaining real-data observation, not a bug: a `Warehouse` device_app with
 `avg_price=₹0.01` (10 orders) — looks like a test/placeholder machine on
-the target's side, not ours. Neither has been explained by the target
-app's own UI yet — flag to the user if it matters for reporting.
-Independent cross-check against the target app's own UI is still
-outstanding. A real, previously-unknown detail surfaced building this:
-the target's `createtime` date-range filter uses **UTC+8 day
-boundaries**, confirmed live, not UTC/IST/local time — see
+the target's side, not ours; not yet explained by the target app's own
+UI. Independent cross-check of the full totals against the target app's
+own UI is still outstanding. A real, previously-unknown detail surfaced
+building this: the target's `createtime` date-range filter uses **UTC+8
+day boundaries**, confirmed live, not UTC/IST/local time — see
 `docs/target_application_integration_spec.md`.
 
 ## Critical context — do not relearn these the hard way

@@ -61,9 +61,11 @@ def test_order_date_just_before_utc8_midnight():
     assert order.order_date == "2026-08-23"
 
 
-def test_missing_device_name_defaults_safely():
+def test_missing_device_name_defaults_to_nexus():
+    # Confirmed with the account owner: every raw order row with a null
+    # device.name is Nexus machine data, not an unidentifiable source.
     order = map_api_row_to_order(_raw_row(device={}))
-    assert order.device_app == "UNKNOWN"
+    assert order.device_app == "NEXUS"
 
 
 def test_malformed_money_defaults_to_zero_not_crash():
