@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block title %}{{ equipment.name }} — Equipment Monitor{% endblock %}
+{% block head_extra %}<meta http-equiv="refresh" content="5">{% endblock %}
 {% block content %}
 <p><a href="/">&larr; Back to dashboard</a></p>
-<h1>{{ equipment.name }}</h1>
+<h1>{{ equipment.name }} <span class="live-dot" title="Auto-refreshing every 5s">● live</span></h1>
 
 <section class="detail-grid">
   <div>

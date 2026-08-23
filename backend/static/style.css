@@ -77,6 +77,17 @@ table.equipment-table tr:last-child td { border-bottom: none; }
 
 .error { color: var(--malfunction); }
 
+.live-dot {
+  font-size: 0.55em;
+  vertical-align: middle;
+  color: var(--healthy);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
 form.stacked-form { display: flex; flex-direction: column; gap: 12px; max-width: 360px; }
 form.stacked-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; color: var(--muted); }
 form.stacked-form input, form.stacked-form select {

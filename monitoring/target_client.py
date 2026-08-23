@@ -23,11 +23,10 @@ from playwright.async_api import Page
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from .config import Settings
+from .mapping import map_api_row_to_canonical, map_dom_row_to_canonical
 from .models import AuthenticationRequiredError, ExtractionError, TargetUnavailableError
 from .selectors import (
-    API_FIELD_MAP,
     AUTHENTICATED_MARKER_TEXT,
-    COLUMN_HEADER_MAP,
     DEVICE_INFORMATION_PATH,
     DEVICE_LIST_API_PAGE_SIZE,
     DEVICE_LIST_API_PATH,
@@ -58,62 +57,6 @@ def _derive_dashboard_url(settings: Settings) -> str:
     except Exception:
         logger.warning("Could not derive dashboard URL from TARGET_LOGIN_URL; falling back to base URL")
         return settings.target_base_url
-
-
-def _get_nested(d: dict, dotted_path: str, default=None):
-    cur = d
-    for part in dotted_path.split("."):
-        if not isinstance(cur, dict):
-            return default
-        cur = cur.get(part)
-        if cur is None:
-            return default
-    return cur
-
-
-def _blank_canonical_row() -> dict:
-    return {
-        "equipment_id": "",
-        "equipment_code": "",
-        "name": "",
-        "device_type": "",
-        "status": "",
-        "network_status": "",
-        "fault_type": "",
-        "material_shortage_status": "",
-        "advertising_group": None,
-        "device_address": None,
-        "selling_price": None,
-        "remaining_oranges": None,
-        "_raw": {},
-    }
-
-
-def _map_api_row_to_canonical(row: dict) -> dict:
-    """Maps one raw JSON API row to our canonical field names via
-    selectors.API_FIELD_MAP, preserving the full original row as `_raw`
-    for audit (requirement #10)."""
-    canonical = _blank_canonical_row()
-    for api_field, our_field in API_FIELD_MAP.items():
-        value = _get_nested(row, api_field)
-        if value is not None and isinstance(value, str):
-            value = value.strip()
-        canonical[our_field] = value if value is not None else canonical[our_field]
-    canonical["equipment_id"] = str(canonical["equipment_id"] or "")
-    canonical["_raw"] = row
-    return canonical
-
-
-def _map_dom_row_to_canonical(row: dict[str, str]) -> dict:
-    """Maps one raw DOM-scraped {header_text: cell_text} row to our
-    canonical field names via selectors.COLUMN_HEADER_MAP."""
-    canonical = _blank_canonical_row()
-    for raw_header, value in row.items():
-        our_field = COLUMN_HEADER_MAP.get(raw_header.strip().lower())
-        if our_field:
-            canonical[our_field] = (value or "").strip()
-    canonical["_raw"] = row
-    return canonical
 
 
 class TargetApplicationClient:
@@ -306,7 +249,7 @@ class TargetApplicationClient:
                 )
 
             rows = data["rows"]
-            all_rows.extend(_map_api_row_to_canonical(r) for r in rows)
+            all_rows.extend(map_api_row_to_canonical(r) for r in rows)
 
             total = data.get("total", len(all_rows))
             offset += limit
@@ -332,7 +275,7 @@ class TargetApplicationClient:
             page_num = 1
             while True:
                 rows = await self._read_body_rows(headers)
-                all_rows.extend(_map_dom_row_to_canonical(r) for r in rows)
+                all_rows.extend(map_dom_row_to_canonical(r) for r in rows)
                 if not await self._go_to_next_page():
                     break
                 page_num += 1

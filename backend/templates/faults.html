@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Active Faults — Equipment Monitor{% endblock %}
+{% block head_extra %}<meta http-equiv="refresh" content="5">{% endblock %}
 {% block content %}
-<h1>Active Faults</h1>
+<h1>Active Faults <span class="live-dot" title="Auto-refreshing every 5s">● live</span></h1>
 <table class="equipment-table">
   <thead><tr><th>Equipment</th><th>Fault</th><th>Severity</th><th>Started</th><th>Duration</th></tr></thead>
   <tbody>

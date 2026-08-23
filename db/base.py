@@ -28,7 +28,8 @@ def init_engine(settings: Settings | None = None, echo: bool = False):
     replace the engine."""
     global _engine, _SessionLocal
     settings = settings or load_settings()
-    _engine = create_engine(settings.database_url, echo=echo, future=True)
+    connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
+    _engine = create_engine(settings.database_url, echo=echo, future=True, connect_args=connect_args)
     _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
     return _engine
 

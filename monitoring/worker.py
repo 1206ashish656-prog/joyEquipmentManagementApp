@@ -2,15 +2,20 @@
 Monitoring worker: the real poll-cycle pipeline from spec section 11.
 Persists to Postgres (equipment master, current state, snapshots, fault
 incidents) via services/state_manager.py, records a MonitoringRun audit
-row per cycle (spec section 16), and now (Phase 4) actually notifies
-subscribers via services/alert_engine.py on new/escalated/resolved
-incidents.
+row per cycle (spec section 16), and notifies subscribers via
+services/alert_engine.py on new/escalated/resolved incidents.
+
+Steady-state polling uses LightweightTargetClient (plain HTTP, no
+browser/Chromium at all — see lightweight_client.py's docstring). A real
+Playwright browser is launched ONLY transiently, when the session turns
+out to be invalid/expired, to run the human-in-the-loop CAPTCHA login —
+then it's closed immediately. This means a running `--loop` worker does
+NOT keep a visible (or hidden) Chrome process open/navigating every poll;
+Chrome appears only for the rare re-auth event.
 
 Run:
     python -m monitoring.worker            # single poll cycle, then exit
-    python -m monitoring.worker --loop     # repeat forever, using the
-                                            # SAME persistent browser
-                                            # session (requirement #12)
+    python -m monitoring.worker --loop     # repeat forever
 """
 from __future__ import annotations
 
@@ -25,7 +30,8 @@ from db.models import MonitoringRun, MonitoringRunStatus
 from monitoring.browser_manager import BrowserManager
 from monitoring.config import Settings, load_settings
 from monitoring.equipment_extractor import EquipmentExtractor
-from monitoring.models import MonitoringError
+from monitoring.lightweight_client import LightweightTargetClient
+from monitoring.models import AuthenticationRequiredError, MonitoringError
 from monitoring.session_manager import SessionManager
 from monitoring.target_client import TargetApplicationClient
 from services.alert_engine import AlertEngine
@@ -40,33 +46,43 @@ logger = logging.getLogger("worker")
 @dataclass
 class WorkerContext:
     settings: Settings
-    browser_manager: BrowserManager
-    session: SessionManager
-    client: TargetApplicationClient
+    lightweight: LightweightTargetClient
     extractor: EquipmentExtractor
     state_manager: StateManager
     alert_engine: AlertEngine
 
 
-async def build_context(settings: Settings | None = None) -> WorkerContext:
+def build_context(settings: Settings | None = None) -> WorkerContext:
+    """No browser is launched here — steady-state polling never needs
+    one. See _reauthenticate() for the only place a browser gets started."""
     settings = settings or load_settings()
     db_base.init_engine(settings)
     db_base.create_all()
 
-    browser_manager = BrowserManager(settings.storage_state_path, headless=settings.headless)
-    page = await browser_manager.start()
-    client = TargetApplicationClient(page, settings)
-    session = SessionManager(browser_manager, client)
-
     return WorkerContext(
         settings=settings,
-        browser_manager=browser_manager,
-        session=session,
-        client=client,
+        lightweight=LightweightTargetClient(settings),
         extractor=EquipmentExtractor(),
         state_manager=StateManager(HealthEngine()),
         alert_engine=AlertEngine(settings, NotificationService(settings)),
     )
+
+
+async def _reauthenticate(settings: Settings) -> None:
+    """The ONLY place a Playwright browser gets launched. Runs the
+    existing, fully-tested SessionManager/TargetApplicationClient login
+    flow (human completes the CAPTCHA in a visible window if HEADLESS is
+    false), persists the resulting session to disk, then closes the
+    browser immediately — it does not stay open for polling."""
+    logger.info("Session invalid/missing — launching a browser for one-time re-authentication")
+    browser_manager = BrowserManager(settings.storage_state_path, headless=settings.headless)
+    try:
+        page = await browser_manager.start()
+        client = TargetApplicationClient(page, settings)
+        session = SessionManager(browser_manager, client)
+        await session.ensure_authenticated()
+    finally:
+        await browser_manager.close()
 
 
 def _log_result(equipment_name: str, equipment_id: str, result: ObservationResult) -> None:
@@ -91,22 +107,25 @@ def _log_result(equipment_name: str, equipment_id: str, result: ObservationResul
 
 
 async def run_once(ctx: WorkerContext) -> MonitoringRun:
-    """One full poll cycle. DB writes (and alert sends) happen
-    synchronously in this coroutine (not offloaded to a thread) — at this
-    scale (one session, a handful to low hundreds of equipment rows per
-    poll, one poll a minute) the volume is small enough that briefly
-    blocking the event loop is an acceptable, simpler tradeoff than a
-    second threading/async-session story."""
+    """One full poll cycle: session check -> (rare) browser re-auth ->
+    lightweight HTTP fetch -> validate -> evaluate -> persist -> alert."""
     with db_base.get_session() as db_session:
         run = MonitoringRun(status=MonitoringRunStatus.RUNNING)
         db_session.add(run)
         db_session.flush()
 
         try:
-            await ctx.session.ensure_authenticated()
-            await ctx.client.open_device_information()
+            if not await ctx.lightweight.is_session_valid():
+                await _reauthenticate(ctx.settings)
+                ctx.lightweight.reload_cookies()
+                if not await ctx.lightweight.is_session_valid():
+                    raise AuthenticationRequiredError(
+                        "Still redirected to login after browser re-authentication attempt."
+                    )
+            else:
+                logger.info("Existing session is valid (lightweight check, no browser) — reusing it.")
 
-            raw_rows = await ctx.client.get_equipment_data()
+            raw_rows = await ctx.lightweight.get_equipment_data()
             raw_rows = ctx.extractor.extract(raw_rows)
             records = ctx.extractor.normalize(raw_rows)
             ctx.extractor.validate(records, min_expected=1)
@@ -142,7 +161,10 @@ async def run_once(ctx: WorkerContext) -> MonitoringRun:
 
 
 async def run_forever(ctx: WorkerContext) -> None:
-    logger.info("Monitoring worker started. Polling every %ss.", ctx.settings.poll_interval_seconds)
+    logger.info(
+        "Monitoring worker started (lightweight/no-browser steady state). Polling every %ss.",
+        ctx.settings.poll_interval_seconds,
+    )
     while True:
         run = await run_once(ctx)
         logger.info(
@@ -157,7 +179,7 @@ async def main() -> None:
     parser.add_argument("--loop", action="store_true", help="Poll repeatedly instead of once")
     args = parser.parse_args()
 
-    ctx = await build_context()
+    ctx = build_context()
     try:
         if args.loop:
             await run_forever(ctx)
@@ -168,7 +190,7 @@ async def main() -> None:
             if run.error_message:
                 print(f"Error: {run.error_message}")
     finally:
-        await ctx.browser_manager.close()
+        await ctx.lightweight.close()
 
 
 if __name__ == "__main__":

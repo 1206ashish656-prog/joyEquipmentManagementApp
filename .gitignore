@@ -14,6 +14,7 @@ env/
 # Playwright / session artifacts (may contain cookies/session tokens)
 data/storage_state/*.json
 data/discovery_output/
+data/*.db
 playwright-report/
 test-results/
 

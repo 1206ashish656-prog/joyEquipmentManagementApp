@@ -55,6 +55,7 @@ class Settings:
     db_name: str
     db_user: str
     db_password: str
+    database_url_override: str
 
     smtp_host: str
     smtp_port: int
@@ -73,6 +74,12 @@ class Settings:
 
     @property
     def database_url(self) -> str:
+        # DATABASE_URL, if set, overrides the DB_* fields entirely — e.g.
+        # for pointing at SQLite for a quick local demo/CI run without
+        # Docker/Postgres, or a managed Postgres URL in some deployments.
+        # docker-compose.yml/db/init_db.py still default to the DB_* path.
+        if self.database_url_override:
+            return self.database_url_override
         return (
             f"postgresql+psycopg2://{self.db_user}:{self.db_password}"
             f"@{self.db_host}:{self.db_port}/{self.db_name}"
@@ -104,6 +111,7 @@ def load_settings() -> Settings:
         db_name=os.getenv("DB_NAME", "equipment_monitor").strip(),
         db_user=os.getenv("DB_USER", "equipment_monitor").strip(),
         db_password=os.getenv("DB_PASSWORD", "").strip(),
+        database_url_override=os.getenv("DATABASE_URL", "").strip(),
         smtp_host=os.getenv("SMTP_HOST", "").strip(),
         smtp_port=_get_int("SMTP_PORT", 587),
         smtp_username=os.getenv("SMTP_USERNAME", "").strip(),
