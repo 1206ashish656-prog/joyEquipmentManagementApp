@@ -61,24 +61,51 @@
 
 <!-- ============================== COVER ============================== -->
 <section class="cover" style="min-height: 92vh; display:flex; flex-direction:column; justify-content:center;">
-  <div class="kicker">System Report</div>
+  <div class="kicker">System Report — v2</div>
   <h1>Equipment Health Monitoring &amp; Alerting Application</h1>
   <p style="font-size:13pt; color:var(--muted); font-family:-apple-system,sans-serif; max-width:520px;">
     Session-aware monitoring, health evaluation, incident alerting, and a
     live web dashboard for a third-party equipment management application.
   </p>
   <div class="cover-meta">
-    <div><b>Report date:</b> 23 August 2026</div>
+    <div><b>Report date:</b> 23 August 2026 (v2 — updated same day; see "What's new in v2")</div>
     <div><b>Target application:</b> jwintell.com (Equipment Management → Device Information)</div>
     <div><b>Prepared for:</b> Project owner / stakeholder review</div>
     <div><b>Status:</b> Phases 1–5 implemented and functionally verified live against the real
-      target site; Phase 6 (hardening) and full Postgres/SMTP verification pending — see §8.</div>
+      target site, including a fully automated login (see §4.1/§5.1); Phase 6 (hardening) and
+      full Postgres/SMTP verification pending — see §8.</div>
   </div>
+</section>
+
+<!-- ============================== WHAT'S NEW IN V2 ============================== -->
+<section class="section" id="whatsnew">
+<h2>What's New in v2</h2>
+<p>This version supersedes the same-day v1. Everything below was implemented and
+live-verified against the real target site after v1 was published.</p>
+<ul>
+<li><b>CAPTCHA login is now fully automated by explicit, account-owner authorization</b>
+(<code>AUTO_SOLVE_CAPTCHA</code>) — a deliberate, disclosed reversal of the original spec's
+own "never bypass CAPTCHA" requirement, specific to a confirmed bug in this one target. See
+the rewritten §4.1 and §5.1.</li>
+<li><b>A real session-validity bug was found and fixed</b> during live testing: the
+lightweight HTTP client's session check previously probed the dashboard shell page, which
+(confirmed live) returns HTTP 200 with no redirect even with zero cookies at all — a
+false-positive trap for "no session yet." It now probes the actual data API directly. See §7.4.</li>
+<li><b>Live network capture evidence</b>: the exact login request (password redacted) and
+the JSON response that confirms authentication, captured from a genuinely cold session with
+zero human involvement. See §7.4.</li>
+<li><b>A new "Running the Application" section (§9)</b> with the full command reference to
+start the system manually, covering both the no-Docker/SQLite quick-start path and the
+production Postgres path.</li>
+<li>Test suite grew from 70 to <b>73 passing tests</b> (6 rewritten/new tests covering the
+session-check fix).</li>
+</ul>
 </section>
 
 <!-- ============================== TOC ============================== -->
 <section class="section">
 <h2>Table of Contents</h2>
+<p class="toc"><a href="#whatsnew">What's New in v2</a></p>
 <ol class="toc">
   <li><a href="#s1">Executive Summary</a></li>
   <li><a href="#s2">System Architecture</a></li>
@@ -88,6 +115,7 @@
   <li><a href="#s6">Feature Walkthrough (Live Screenshots)</a></li>
   <li><a href="#s7">Testing &amp; Live Verification Summary</a></li>
   <li><a href="#s8">Pending Features / Roadmap</a></li>
+  <li><a href="#s9">Running the Application — Commands</a></li>
   <li><a href="#appa">Appendix A — Tool &amp; Technology Reference</a></li>
   <li><a href="#appb">Appendix B — Project File Structure</a></li>
   <li><a href="#appc">Appendix C — State Vocabulary Glossary</a></li>
@@ -316,9 +344,9 @@ is enforced).</p>
 
   <path class="edge" d="M180,360 V380"/>
   <rect class="box box-auth" x="20" y="380" width="320" height="66" rx="8"/>
-  <text class="lbl" x="180" y="405" text-anchor="middle">Human completes CAPTCHA</text>
-  <text class="lbl2" x="180" y="423" text-anchor="middle">+ submits — never automated</text>
-  <text class="lbl2" x="180" y="438" text-anchor="middle">(polls page URL, no console input needed)</text>
+  <text class="lbl" x="180" y="401" text-anchor="middle" style="font-size:11px">Fill CAPTCHA field + submit</text>
+  <text class="lbl2" x="180" y="418" text-anchor="middle">AUTO_SOLVE_CAPTCHA=true: automatic (this target only)</text>
+  <text class="lbl2" x="180" y="433" text-anchor="middle">false (default): a human does this — see §5.1</text>
 
   <path class="edge" d="M180,446 V466"/>
   <rect class="box box-auth" x="20" y="466" width="320" height="52" rx="8"/>
@@ -477,18 +505,25 @@ so an open browser tab reflects new polls without a manual reload.</p>
 <section class="section" id="s4">
 <h2>4. Framework &amp; Technology Choices — Justification</h2>
 
-<h3>4.1 Playwright, but only for the CAPTCHA step</h3>
+<h3>4.1 Playwright, but only for the login step</h3>
 <p>Playwright was the correct starting point because the target application requires an
-interactive login with an image CAPTCHA — no pure-HTTP client can complete that step,
-and per the original requirement, it must never be automated. However, once
-Phase 1 discovery revealed that the actual equipment data comes from a plain JSON
-endpoint (not server-rendered HTML requiring JS execution), keeping a full browser
-running for every subsequent poll stopped being justified. The application was
-refactored mid-build (see the git history) to a hybrid: Playwright is retained
-exclusively for the login/CAPTCHA flow and as a DOM-scrape fallback; <code>httpx</code>
-handles all steady-state polling. This was verified live — zero Playwright-owned
-Chromium processes existed across multiple full poll cycles once the change was made,
-versus one long-lived visible browser window before it.</p>
+interactive login behind an image CAPTCHA. Once Phase 1 discovery revealed that the actual
+equipment data comes from a plain JSON endpoint (not server-rendered HTML requiring JS
+execution), keeping a full browser running for every subsequent poll stopped being
+justified. The application was refactored mid-build (see the git history) to a hybrid:
+Playwright is retained exclusively for the login flow and as a DOM-scrape fallback;
+<code>httpx</code> handles all steady-state polling. This was verified live — zero
+Playwright-owned Chromium processes existed across multiple full poll cycles once the change
+was made, versus one long-lived visible browser window before it.</p>
+
+<p><b>Update (v2):</b> the login step itself was originally strictly human-in-the-loop, per
+the original spec's explicit "never automate the CAPTCHA" requirement. On 2026-08-23 the
+account owner identified that this specific target's CAPTCHA field is never actually
+validated against the code shown in the image (any 4 characters are accepted) and explicitly
+authorized automating past it on their own account. This is implemented as an opt-in flag
+(<code>AUTO_SOLVE_CAPTCHA</code>, default <code>false</code>) rather than a default behavior
+change — see §5.1 for the full disclosure and §7.4 for live verification evidence, including
+the actual captured request/response.</p>
 
 <h3>4.2 FastAPI for the backend</h3>
 <p>Chosen over Flask/Django for its native <code>async</code> support (consistent with
@@ -547,10 +582,17 @@ profiles/schedules are added later.</p>
 <h2>5. Constraints &amp; Current Limitations</h2>
 
 <h3>5.1 Inherent to the target application</h3>
-<div class="callout limit"><b>CAPTCHA requires a human, by design.</b> This is not a
-limitation to be engineered around — the original requirement explicitly forbids
-automating it. Any deployment must have a person available to complete login the first
-time and whenever a session genuinely expires.</div>
+<div class="callout limit"><b>CAPTCHA automation is enabled for this target, by explicit
+account-owner authorization — this is a deliberate exception, not the safe default.</b>
+The original project requirement explicitly and repeatedly forbids automating past
+CAPTCHA ("must NOT be designed around bypassing or defeating CAPTCHA"; listed as a named
+non-goal). That remains the correct default (<code>AUTO_SOLVE_CAPTCHA=false</code> in
+<code>.env.example</code>), and is what runs for any target other than this one. It was
+switched on here, on 2026-08-23, only after the account owner identified and explicitly
+authorized exploiting a confirmed bug in this specific target's login form: the CAPTCHA
+field's value is never actually checked against the image shown — any 4 characters are
+accepted. Enabling this against a different target without the same kind of explicit,
+case-by-case authorization would not be appropriate. See §7.4 for the captured evidence.</div>
 <ul>
 <li><b>Single monitoring account/profile.</b> The current implementation supports one
 target-application login. Multiple target accounts (spec §29's "Monitoring Profile A /
@@ -692,9 +734,9 @@ NEXUS, PNR, Gravity, REFRESH-1, REFRESHA 2, Warehouse — are the real fleet.</p
 <tr><td><code>test_state_manager.py</code></td><td>10</td><td>Incident open/escalate/resolve; reproduces the spec's own "4 faults, 1 alert" worked example exactly</td></tr>
 <tr><td><code>test_notification_service.py</code></td><td>6</td><td>SMTP interaction (mocked), console fallback, credentials never logged</td></tr>
 <tr><td><code>test_alert_engine.py</code></td><td>12</td><td>Recipient resolution matrix: admin/subscription/severity/equipment-scoping/dedup</td></tr>
-<tr><td><code>test_lightweight_client.py</code></td><td>14</td><td>Cookie loading, redirect-to-login detection, pagination, error classification — via <code>httpx.MockTransport</code>, no real network</td></tr>
+<tr><td><code>test_lightweight_client.py</code></td><td>17</td><td>Cookie loading, session-validity probe (rewritten in v2 — see §7.4), pagination, mid-fetch auth-expiry classification — via <code>httpx.MockTransport</code>, no real network</td></tr>
 <tr><td><code>test_backend.py</code></td><td>17</td><td>Auth, RBAC, all dashboard pages, subscription CRUD — via FastAPI's <code>TestClient</code></td></tr>
-<tr><td><b>Total</b></td><td><b>70</b></td><td>All passing at time of writing</td></tr>
+<tr><td><b>Total</b></td><td><b>73</b></td><td>All passing at time of writing (v1 had 70 — 6 tests rewritten/added in v2 for the session-check fix)</td></tr>
 </table>
 
 <h3>7.2 Live verification performed</h3>
@@ -725,6 +767,40 @@ apart, proving end-to-end freshness rather than a cached/static response.</li>
 <tr><td>DOM-scrape fallback under a real API failure</td><td>The JSON API path has not failed during this build</td></tr>
 <tr><td>Behavior under a genuine target-side fault</td><td>No real fault has occurred on the connected account</td></tr>
 </table>
+
+<h3>7.4 CAPTCHA automation — live verification (v2)</h3>
+<p>Verified end to end from a genuinely cold state, not a mocked or simulated one: the
+saved session file was deleted entirely, then a single poll cycle was run and the actual
+network traffic captured directly from the Playwright page (password redacted before
+being written anywhere, including this report).</p>
+<ol>
+<li><b>Session check</b> against the empty session correctly returned invalid
+(<code>is_session_valid() -&gt; False</code>).</li>
+<li><b>Login submission</b> — a standard HTML form POST (not JSON; see the note in §4.1),
+captured in full:
+<pre>POST https://www.jwintell.com/NgsEmfuaOv.php/index/login?url=...
+Content-Type: application/x-www-form-urlencoded
+
+__token__=e9e8c9c6fcfc2d18a99a569d4334780c
+&amp;username=Refresha
+&amp;password=***REDACTED***
+&amp;captcha=F2Y6          &lt;- random, unrelated to the actual displayed image
+&amp;keeplogin=1</pre>
+</li>
+<li><b>Confirmation</b> — the very next request, the real JSON list API, returned live
+data for all 6 devices instead of an authentication error, proving the login succeeded:
+<pre>GET https://www.jwintell.com/NgsEmfuaOv.php/device/device/index?...
+Accept: application/json
+X-Requested-With: XMLHttpRequest
+
+-&gt; HTTP 200, Content-Type: application/json
+-&gt; {"total": 6, "rows": [{"id": 205, "name": "NEXUS", ...}, ...]}</pre>
+</li>
+</ol>
+<p>Zero human input occurred at any point in this sequence — no visible browser window,
+no wait, no manual CAPTCHA entry. Full capture (all headers, full equipment payload,
+password redacted) was saved for reference; it is not included in this repository as it
+contains live account data.</p>
 </section>
 
 <!-- ============================== 8. PENDING ============================== -->
@@ -771,6 +847,72 @@ incident boundaries.</li>
 </ul>
 </section>
 
+<!-- ============================== 9. RUNNING THE APPLICATION ============================== -->
+<section class="section" id="s9">
+<h2>9. Running the Application — Commands</h2>
+<p>Two terminals are needed — the monitoring worker and the dashboard run as separate,
+concurrent processes (§2). Commands below are PowerShell, matching this project's Windows
+development environment.</p>
+
+<h3>9.1 One-time setup</h3>
+<pre>python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements-dev.txt
+python -m playwright install chromium
+copy .env.example .env</pre>
+<p>Then edit <code>.env</code>: fill in <code>TARGET_USERNAME</code>/<code>TARGET_PASSWORD</code>,
+and generate a <code>WEB_SECRET_KEY</code>:</p>
+<pre>python -c "import secrets; print(secrets.token_hex(32))"</pre>
+
+<h3>9.2 Quick start — no Docker/Postgres needed</h3>
+<p>Uses the <code>DATABASE_URL</code> override (§4.4) to point at a local SQLite file
+instead of Postgres — this is the path used for all live verification in this report.</p>
+<pre># Terminal 1 - one-time: create tables + first admin login
+$env:DATABASE_URL = "sqlite:///data/demo.db"
+python -m db.seed_admin --name "Your Name" --email you@example.com
+
+# Terminal 1 - start the continuous monitoring loop
+$env:DATABASE_URL = "sqlite:///data/demo.db"
+python -m monitoring.worker --loop</pre>
+<pre># Terminal 2 - start the dashboard (same DB)
+$env:DATABASE_URL = "sqlite:///data/demo.db"
+uvicorn backend.main:app --host 127.0.0.1 --port 8123</pre>
+<p>Then open <code>http://127.0.0.1:8123</code>.</p>
+
+<h3>9.3 Production-style — real PostgreSQL</h3>
+<pre>docker compose up -d
+python -m db.init_db
+python -m db.seed_admin --name "Your Name" --email you@example.com</pre>
+<pre># Terminal 1
+python -m monitoring.worker --loop</pre>
+<pre># Terminal 2
+uvicorn backend.main:app --reload</pre>
+<p>No <code>DATABASE_URL</code> needed here — it falls back to <code>.env</code>'s
+<code>DB_*</code> values, which point at the Postgres container.</p>
+
+<h3>9.4 One-off / diagnostic commands</h3>
+<pre>python -m monitoring.worker                    # single poll cycle, then exit (no --loop)
+python -m tests.tc_001_target_connection.run    # live connectivity smoke test, no DB
+python -m monitoring.poc_runner                 # Phase 2 connectivity demo, no DB
+pytest tests/ --ignore=tests/tc_001_target_connection -v   # 73 unit tests, no live site/DB/SMTP needed</pre>
+
+<h3>9.5 Stopping the application</h3>
+<p><code>Ctrl+C</code> in each terminal. If running detached/in the background instead:</p>
+<pre>Get-CimInstance Win32_Process -Filter "name='python.exe'" |
+    Where-Object { $_.CommandLine -match 'monitoring.worker|uvicorn' } |
+    Select-Object ProcessId, CommandLine
+Stop-Process -Id &lt;id&gt; -Force</pre>
+
+<h3>9.6 Relevant <code>.env</code> flags</h3>
+<table>
+<tr><th style="width:26%">Flag</th><th>Effect</th></tr>
+<tr><td><code>HEADLESS</code></td><td><code>true</code>: no visible browser at all, including for re-authentication (requires <code>AUTO_SOLVE_CAPTCHA=true</code>, or re-auth will simply time out with no human able to complete the CAPTCHA). <code>false</code>: a visible window opens for a human to complete the CAPTCHA when re-authentication is needed.</td></tr>
+<tr><td><code>AUTO_SOLVE_CAPTCHA</code></td><td>See §4.1/§5.1 — default-off, enabled here by explicit account-owner authorization specific to this target's known CAPTCHA bug.</td></tr>
+<tr><td><code>POLL_INTERVAL_SECONDS</code></td><td>Seconds between poll cycles. Lower values were used for real-time testing during this build; a more conservative value (e.g. 60) is recommended for routine/long-running use to reduce load on the target.</td></tr>
+<tr><td><code>DATABASE_URL</code></td><td>Optional override of the <code>DB_*</code> fields — e.g. <code>sqlite:///./data/demo.db</code> for a quick local run without Docker/Postgres (§4.4, §9.2).</td></tr>
+</table>
+</section>
+
 <!-- ============================== APPENDIX A ============================== -->
 <section class="section" id="appa">
 <h2>Appendix A — Tool &amp; Technology Reference</h2>
@@ -792,7 +934,7 @@ incident boundaries.</li>
 <tr><td>SQLite</td><td>bundled (Python stdlib)</td><td>Database</td><td>Embedded, file-based; used for the automated test suite and the local/demo run described in this report. Not the production target — see §5.2.</td></tr>
 <tr><td>PyYAML</td><td>6.0.2</td><td>Config</td><td>Loads <code>config/health_rules.yaml</code> — keeps health-evaluation rules editable without a code change.</td></tr>
 <tr><td>python-dotenv</td><td>1.0.1</td><td>Config</td><td>Loads <code>.env</code> into process environment variables; keeps all secrets out of source code.</td></tr>
-<tr><td>pytest</td><td>8.3.3</td><td>Testing</td><td>Test runner for all 70 unit/integration tests.</td></tr>
+<tr><td>pytest</td><td>8.3.3</td><td>Testing</td><td>Test runner for all 73 unit/integration tests.</td></tr>
 <tr><td>pytest-asyncio</td><td>0.24.0</td><td>Testing</td><td>Enables <code>async def</code> test functions (used by the lightweight-client tests).</td></tr>
 <tr><td>hashlib / hmac / secrets (stdlib)</td><td>—</td><td>Security</td><td>PBKDF2-HMAC-SHA256 password hashing and HMAC-signed session cookies — no external auth dependency.</td></tr>
 <tr><td>smtplib / email (stdlib)</td><td>—</td><td>Alerting</td><td>SMTP email delivery — no external mail library required.</td></tr>
