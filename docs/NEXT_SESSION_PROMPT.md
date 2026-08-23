@@ -51,22 +51,30 @@ straight from the originally-planned CSV to the DB, since the UI's
 flexible period/breakdown views can't be done cleanly against a flat
 file). Every other view (aggregate, machine-wise, price-wise,
 pay-type-wise, any combination) is a rollup computed at query time
-(`orders/rollup.py`), not separately stored. New dashboard tab at
-`/orders/summary` (period selector: Daily/Weekly/Monthly/YTD, breakdown
-checkboxes, Chart.js line chart via CDN — no build step added). **Verified
-live end to end for exactly one day so far** (2026-08-23: 310 raw → 249
-qualifying orders, 3 groups since no price change that day), including
-the actual rendered dashboard page, not just the CLI/DB — **not yet
-independently cross-checked against the target app's own UI, and not yet
-backfilled across history** (32,049 total orders exist ≈ 100+ days). A
-real, previously-unknown detail surfaced building this: the target's
-`createtime` date-range filter uses **UTC+8 day boundaries**, confirmed
-live, not UTC/IST/local time — see
-`docs/target_application_integration_spec.md`. Next steps: get the user's
-sign-off on the one verified day (including cross-checking the mid-day
-price-change grouping once a real example occurs), then the full
-historical backfill (`python -m orders.backfill --start <earliest> --end
-<today>`) — sequential, will take a while at ~1 request per ~100 orders.
+(`orders/rollup.py`), not separately stored. Dashboard tab at
+`/orders/summary` (period selector: Daily/Weekly/Monthly/YTD, three
+independent breakdown checkboxes — machine/price/pay_type, any
+combination — plus **two** Chart.js line charts: an always-on aggregated
+trend and an optional by-machine trend, shown together when "by machine"
+is checked).
+
+**Historical backfill complete**: `python -m orders.backfill --start
+2026-05-02 --end 2026-08-23` ran end to end, 114 days, all `SUCCESS`, zero
+failures (`data/demo.db`, git-ignored). Verified live via a headless
+screenshot of the YTD view with both breakdown and both charts on —
+22,881 orders, 5 distinct `device_app` values. Two real-data observations
+surfaced (not bugs, just worth knowing): a `UNKNOWN` device_app bucket
+(3,499 orders) — `orders/mapping.py`'s fallback when the raw API's
+`device.name` is null/missing for a row, i.e. genuinely present in the
+source data, not a mapping gap; and a `Warehouse` device_app with
+`avg_price=₹0.01` (10 orders) — looks like a test/placeholder machine on
+the target's side, not ours. Neither has been explained by the target
+app's own UI yet — flag to the user if it matters for reporting.
+Independent cross-check against the target app's own UI is still
+outstanding. A real, previously-unknown detail surfaced building this:
+the target's `createtime` date-range filter uses **UTC+8 day
+boundaries**, confirmed live, not UTC/IST/local time — see
+`docs/target_application_integration_spec.md`.
 
 ## Critical context — do not relearn these the hard way
 
