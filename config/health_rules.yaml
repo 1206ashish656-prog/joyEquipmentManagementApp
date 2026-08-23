@@ -1,0 +1,34 @@
+# Configurable health-evaluation rules (project requirement #7).
+# Values are matched case-insensitively against the target application's
+# raw fields — never edit services/health_engine.py to add a new value,
+# edit this file.
+#
+# fault_type is a DENY-list: fault descriptions are free text ("Motor
+# Fault", "Temperature Fault", ...) and can't be fully enumerated in
+# advance, so anything NOT in no_fault_values is treated as a malfunction.
+# This mirrors requirement #7's example rule "IF Fault Type != Normal
+# THEN MALFUNCTION". network_status and material_shortage_status are
+# ALLOW-lists instead: they're small, enum-like vocabularies, so an
+# unrecognized value there is treated as UNKNOWN rather than guessed —
+# see requirement #28 (never turn uncertainty into a negative state).
+
+fault_type:
+  no_fault_values: ["normal", "none", "no fault", "-", ""]
+
+network_status:
+  online_values: ["online"]
+  offline_values: ["offline"]
+
+material_shortage_status:
+  ok_values: ["normal", "none", "-", ""]
+  warning_values: ["low"]
+  critical_values: ["empty"]
+  # The spec's own example is ambiguous ("Empty -> WARNING/MALFUNCTION").
+  # Defaulting to the more conservative WARNING; flip this to escalate a
+  # critical shortage straight to MALFUNCTION instead.
+  escalate_critical_to_malfunction: false
+
+severity:
+  OFFLINE: Critical
+  MALFUNCTION: Critical
+  WARNING: Warning

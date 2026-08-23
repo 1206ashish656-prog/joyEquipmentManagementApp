@@ -50,9 +50,22 @@ class Settings:
     poll_interval_seconds: int
     poc_iterations: int
 
+    db_host: str
+    db_port: int
+    db_name: str
+    db_user: str
+    db_password: str
+
     @property
     def has_credentials(self) -> bool:
         return bool(self.target_username and self.target_password)
+
+    @property
+    def database_url(self) -> str:
+        return (
+            f"postgresql+psycopg2://{self.db_user}:{self.db_password}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}"
+        )
 
 
 def load_settings() -> Settings:
@@ -71,6 +84,11 @@ def load_settings() -> Settings:
         auth_manual_timeout_seconds=_get_int("AUTH_MANUAL_TIMEOUT_SECONDS", 300),
         poll_interval_seconds=_get_int("POLL_INTERVAL_SECONDS", 60),
         poc_iterations=_get_int("POC_ITERATIONS", 3),
+        db_host=os.getenv("DB_HOST", "localhost").strip(),
+        db_port=_get_int("DB_PORT", 5432),
+        db_name=os.getenv("DB_NAME", "equipment_monitor").strip(),
+        db_user=os.getenv("DB_USER", "equipment_monitor").strip(),
+        db_password=os.getenv("DB_PASSWORD", "").strip(),
     )
 
 
