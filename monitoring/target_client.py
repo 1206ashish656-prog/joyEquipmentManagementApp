@@ -2,15 +2,19 @@
 TargetApplicationClient: the ONLY module that talks to jwintell.com.
 
 Everything else in the pipeline works with normalized data (see
-equipment_extractor.py). If the target site's markup changes, this file
-(plus selectors.py) is what should need updating — see requirement #34.
+equipment_extractor.py). If the target site's markup/API changes, this
+file (plus selectors.py) is what should need updating — see requirement
+#34.
 
-Selectors are pending Phase 1 discovery confirmation (see selectors.py).
-Run discovery/inspect.py first and update selectors.py from its output
-before relying on this against the real site.
+See selectors.py's module docstring and
+docs/target_application_integration_spec.md for how the target app is
+structured (confirmed via discovery on 2026-08-23): equipment data is
+retrieved primarily via its own JSON list API (requirement #15), with DOM
+scraping of the same Bootstrap Table kept as a fallback.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -21,7 +25,12 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from .config import Settings
 from .models import AuthenticationRequiredError, ExtractionError, TargetUnavailableError
 from .selectors import (
+    API_FIELD_MAP,
     AUTHENTICATED_MARKER_TEXT,
+    COLUMN_HEADER_MAP,
+    DEVICE_INFORMATION_PATH,
+    DEVICE_LIST_API_PAGE_SIZE,
+    DEVICE_LIST_API_PATH,
     DEVICE_TABLE_BODY_CELL,
     DEVICE_TABLE_BODY_ROW,
     DEVICE_TABLE_CONTAINER,
@@ -29,14 +38,12 @@ from .selectors import (
     DEVICE_TABLE_HEADER_ROW,
     LOGIN_PASSWORD_INPUT,
     LOGIN_USERNAME_INPUT,
-    NAV_DEVICE_INFORMATION,
-    NAV_EQUIPMENT_MANAGEMENT,
     PAGINATION_NEXT_BUTTON,
 )
 
 logger = logging.getLogger(__name__)
 
-_MAX_PAGINATION_PAGES = 200  # sanity guard, not an expected real value
+_MAX_PAGINATION_PAGES = 500  # sanity guard, not an expected real value
 
 
 def _derive_dashboard_url(settings: Settings) -> str:
@@ -53,11 +60,69 @@ def _derive_dashboard_url(settings: Settings) -> str:
         return settings.target_base_url
 
 
+def _get_nested(d: dict, dotted_path: str, default=None):
+    cur = d
+    for part in dotted_path.split("."):
+        if not isinstance(cur, dict):
+            return default
+        cur = cur.get(part)
+        if cur is None:
+            return default
+    return cur
+
+
+def _blank_canonical_row() -> dict:
+    return {
+        "equipment_id": "",
+        "equipment_code": "",
+        "name": "",
+        "device_type": "",
+        "status": "",
+        "network_status": "",
+        "fault_type": "",
+        "material_shortage_status": "",
+        "advertising_group": None,
+        "device_address": None,
+        "selling_price": None,
+        "remaining_oranges": None,
+        "_raw": {},
+    }
+
+
+def _map_api_row_to_canonical(row: dict) -> dict:
+    """Maps one raw JSON API row to our canonical field names via
+    selectors.API_FIELD_MAP, preserving the full original row as `_raw`
+    for audit (requirement #10)."""
+    canonical = _blank_canonical_row()
+    for api_field, our_field in API_FIELD_MAP.items():
+        value = _get_nested(row, api_field)
+        if value is not None and isinstance(value, str):
+            value = value.strip()
+        canonical[our_field] = value if value is not None else canonical[our_field]
+    canonical["equipment_id"] = str(canonical["equipment_id"] or "")
+    canonical["_raw"] = row
+    return canonical
+
+
+def _map_dom_row_to_canonical(row: dict[str, str]) -> dict:
+    """Maps one raw DOM-scraped {header_text: cell_text} row to our
+    canonical field names via selectors.COLUMN_HEADER_MAP."""
+    canonical = _blank_canonical_row()
+    for raw_header, value in row.items():
+        our_field = COLUMN_HEADER_MAP.get(raw_header.strip().lower())
+        if our_field:
+            canonical[our_field] = (value or "").strip()
+    canonical["_raw"] = row
+    return canonical
+
+
 class TargetApplicationClient:
     def __init__(self, page: Page, settings: Settings):
         self.page = page
         self.settings = settings
         self._dashboard_url = _derive_dashboard_url(settings)
+        self._device_info_url = f"{settings.target_base_url}{DEVICE_INFORMATION_PATH}?addtabs=1"
+        self._device_list_api_url = f"{settings.target_base_url}{DEVICE_LIST_API_PATH}"
 
     async def is_session_valid(self) -> bool:
         """Navigates to the authenticated home page and checks whether the
@@ -127,8 +192,27 @@ class TargetApplicationClient:
         print("ACTION REQUIRED — Login page is open in the browser window.")
         print("Please complete the CAPTCHA and submit the login form yourself.")
         print("(CAPTCHA is never solved automatically by this application.)")
+        print(f"Waiting up to {self.settings.auth_manual_timeout_seconds}s for you to finish...")
         print("=" * 70)
-        input("Press Enter here once you are logged in and see the console/dashboard... ")
+
+        # Poll page.url (a local property — does NOT navigate) rather than
+        # blocking on console input(). This works whether a human is typing
+        # into this process's own terminal or just watching/driving the
+        # visible browser window directly (e.g. a monitoring worker running
+        # as a service, or this process being driven by tooling rather than
+        # an interactive shell). Deliberately does not call
+        # is_session_valid() in the loop — that does a page.goto(), which
+        # would yank the browser away from the login form mid-CAPTCHA-entry.
+        deadline = asyncio.get_event_loop().time() + self.settings.auth_manual_timeout_seconds
+        while asyncio.get_event_loop().time() < deadline:
+            if "login" not in self.page.url.lower():
+                break
+            await asyncio.sleep(2)
+        else:
+            raise AuthenticationRequiredError(
+                f"Timed out after {self.settings.auth_manual_timeout_seconds}s waiting for "
+                "manual login/CAPTCHA completion (still on the login page)."
+            )
 
         if not await self.is_session_valid():
             raise AuthenticationRequiredError(
@@ -138,9 +222,18 @@ class TargetApplicationClient:
         logger.info("Authentication confirmed — session established.")
 
     async def open_device_information(self) -> None:
+        """Navigates directly to the Device Information content URL.
+
+        NOTE: earlier we tried clicking the sidebar ("Equipment Management"
+        -> "Device Information") but the submenu is a slide-toggle that
+        doesn't reliably respond to a plain Playwright click, leaving the
+        target link present-but-hidden in the DOM. Since we know its real
+        destination URL (confirmed via discovery), navigating straight
+        there is both simpler and more reliable — see
+        docs/target_application_integration_spec.md.
+        """
         try:
-            await self.page.click(NAV_EQUIPMENT_MANAGEMENT, timeout=10000)
-            await self.page.click(NAV_DEVICE_INFORMATION, timeout=10000)
+            await self.page.goto(self._device_info_url, wait_until="networkidle", timeout=20000)
             await self.page.wait_for_selector(DEVICE_TABLE_CONTAINER, timeout=15000)
         except PlaywrightTimeoutError as e:
             if "login" in self.page.url.lower():
@@ -148,16 +241,85 @@ class TargetApplicationClient:
                     "Redirected to login while navigating to Device Information"
                 ) from e
             raise ExtractionError(
-                f"Could not open Equipment Management -> Device Information: {e}. "
+                f"Could not open Device Information page: {e}. "
                 "Page structure may have changed — check selectors.py."
             ) from e
         except PlaywrightError as e:
             raise TargetUnavailableError(f"Navigation failure opening Device Information: {e}") from e
 
-    async def get_equipment_data(self) -> list[dict[str, str]]:
-        """Reads the Device Information table across all pages. Returns raw
-        rows keyed by the table's own header text — normalization into
-        EquipmentRecord happens in EquipmentExtractor, not here."""
+    async def get_equipment_data(self) -> list[dict]:
+        """Returns raw-but-canonically-keyed equipment rows (see
+        _blank_canonical_row for the shape). Normalization into
+        EquipmentRecord/validation happens in EquipmentExtractor, not here.
+
+        Tries the target's own JSON list API first (requirement #15);
+        falls back to DOM scraping of the same table if that fails
+        structurally, per requirement #15's "must remain capable of
+        falling back to browser/DOM extraction if necessary."
+        """
+        try:
+            return await self._get_equipment_data_api()
+        except (AuthenticationRequiredError, TargetUnavailableError):
+            raise
+        except ExtractionError as e:
+            logger.warning("API extraction failed (%s) — falling back to DOM scraping", e)
+            return await self._get_equipment_data_dom()
+
+    async def _get_equipment_data_api(self) -> list[dict]:
+        limit = DEVICE_LIST_API_PAGE_SIZE
+        offset = 0
+        all_rows: list[dict] = []
+        page_num = 1
+
+        while True:
+            params = {
+                "addtabs": "1",
+                "sort": "id",
+                "order": "desc",
+                "offset": str(offset),
+                "limit": str(limit),
+                "filter": "{}",
+                "op": "{}",
+            }
+            try:
+                resp = await self.page.request.get(
+                    self._device_list_api_url,
+                    params=params,
+                    headers={"X-Requested-With": "XMLHttpRequest"},
+                    timeout=15000,
+                )
+            except PlaywrightError as e:
+                raise TargetUnavailableError(f"Could not reach device list API: {e}") from e
+
+            if resp.status != 200:
+                raise ExtractionError(f"Device list API returned HTTP {resp.status}")
+
+            try:
+                data = await resp.json()
+            except Exception as e:
+                raise ExtractionError(f"Device list API did not return valid JSON: {e}") from e
+
+            if not isinstance(data, dict) or "rows" not in data:
+                raise ExtractionError(
+                    f"Device list API response missing 'rows' — schema may have changed. "
+                    f"Keys seen: {list(data.keys()) if isinstance(data, dict) else type(data)}"
+                )
+
+            rows = data["rows"]
+            all_rows.extend(_map_api_row_to_canonical(r) for r in rows)
+
+            total = data.get("total", len(all_rows))
+            offset += limit
+            if not rows or offset >= total:
+                break
+            page_num += 1
+            if page_num > _MAX_PAGINATION_PAGES:
+                logger.warning("Hit API pagination sanity guard (%s pages) — stopping", _MAX_PAGINATION_PAGES)
+                break
+
+        return all_rows
+
+    async def _get_equipment_data_dom(self) -> list[dict]:
         try:
             headers = await self._read_headers()
             if not headers:
@@ -166,10 +328,11 @@ class TargetApplicationClient:
                     "page structure may have changed."
                 )
 
-            all_rows: list[dict[str, str]] = []
+            all_rows: list[dict] = []
             page_num = 1
             while True:
-                all_rows.extend(await self._read_body_rows(headers))
+                rows = await self._read_body_rows(headers)
+                all_rows.extend(_map_dom_row_to_canonical(r) for r in rows)
                 if not await self._go_to_next_page():
                     break
                 page_num += 1

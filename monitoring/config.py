@@ -45,6 +45,7 @@ class Settings:
 
     storage_state_path: Path
     headless: bool
+    auth_manual_timeout_seconds: int
 
     poll_interval_seconds: int
     poc_iterations: int
@@ -67,6 +68,7 @@ def load_settings() -> Settings:
         target_password=os.getenv("TARGET_PASSWORD", "").strip(),
         storage_state_path=storage_state_path,
         headless=_get_bool("HEADLESS", False),
+        auth_manual_timeout_seconds=_get_int("AUTH_MANUAL_TIMEOUT_SECONDS", 300),
         poll_interval_seconds=_get_int("POLL_INTERVAL_SECONDS", 60),
         poc_iterations=_get_int("POC_ITERATIONS", 3),
     )

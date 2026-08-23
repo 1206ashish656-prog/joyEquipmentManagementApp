@@ -17,6 +17,9 @@ data/discovery_output/
 playwright-report/
 test-results/
 
+# Test run output (may contain real equipment data from the target app)
+tests/*/results/*.json
+
 # Node (future frontend)
 node_modules/
 .next/

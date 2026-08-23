@@ -67,9 +67,17 @@ def validate_records(
         )
 
 
+def _is_blank(value: object) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip() == ""
+    return False  # non-string, non-None values (dicts, numbers, ...) count as present
+
+
 def validate_raw_rows(rows: Iterable[dict]) -> list[dict]:
     """Cheap pre-check on raw scraped rows before normalization: drop rows
     that are entirely empty (e.g. spacer rows), but do NOT silently accept
     an empty overall set — that is validate_records' job, post-normalization.
     """
-    return [r for r in rows if any((v or "").strip() for v in r.values())]
+    return [r for r in rows if any(not _is_blank(v) for v in r.values())]

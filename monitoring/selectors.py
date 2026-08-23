@@ -1,63 +1,90 @@
 """
-Centralized selectors/locators for the target application.
+Centralized selectors/URLs/field-mappings for the target application.
 
-This is intentionally the ONLY place (together with equipment_extractor.py's
-column-header mapping) that should need to change if the target site's HTML
-changes — see project requirement #34 (isolate the integration layer).
+This is intentionally the ONLY place (together with the mapping helpers in
+target_client.py) that should need to change if the target site's
+structure changes — see requirement #34.
 
-STATUS: PENDING PHASE 1 DISCOVERY.
-Everything below is a best-effort first pass based on the field/menu labels
-given in the spec (section 4 sidebar, section 5 table), written as
-text/role-based locators rather than brittle CSS classes so they have a
-reasonable chance of working unmodified. Each one is marked so it's easy to
-find and confirm/replace once discovery/inspect.py has produced real HTML
-and network samples (see data/discovery_output/ after running it).
+STATUS: confirmed against the live site via discovery on 2026-08-23 — see
+docs/target_application_integration_spec.md for the full write-up. It is
+a FastAdmin-style (ThinkPHP) back office with an iframe/tab shell:
+
+  outer page  https://www.jwintell.com/NgsEmfuaOv.php/device/device?ref=addtabs
+  contains an <iframe src="/NgsEmfuaOv.php/device/device?addtabs=1">
+  whose Bootstrap Table (id="table") is populated by a JSON XHR:
+  GET /NgsEmfuaOv.php/device/device/index?addtabs=1&sort=id&order=desc
+      &offset=<N>&limit=<N>&filter={}&op={}
+  (header X-Requested-With: XMLHttpRequest)
+
+We use that JSON endpoint directly as the primary data source (requirement
+#15: prefer a structured request over DOM scraping where one exists). DOM
+scraping of the same table is kept as a fallback in case the endpoint
+changes/breaks — those selectors are still best-effort/unconfirmed for
+row-reading purposes (the page was never actually scraped via DOM in
+practice) and should be re-verified against data/discovery_output/ if the
+fallback path is ever exercised for real.
 """
 from __future__ import annotations
 
 # --- Login page ---
-# TODO_DISCOVERY: confirm actual input names/ids from data/discovery_output/login_page.html
+# TODO_DISCOVERY: input selectors worked for prefill during TC-001 (no
+# error was logged), but weren't independently confirmed byte-for-byte —
+# revisit if prefill ever silently targets the wrong field.
 LOGIN_USERNAME_INPUT = "input[name='username'], input[name='account'], input[type='text']"
 LOGIN_PASSWORD_INPUT = "input[name='password'], input[type='password']"
-LOGIN_CAPTCHA_INPUT = "input[name='captcha'], input[name='verify_code'], input[name='code']"
-LOGIN_CAPTCHA_IMAGE = "img[src*='captcha'], img[alt*='captcha' i]"
-LOGIN_SUBMIT_BUTTON = "button[type='submit'], button:has-text('Login'), button:has-text('Sign in')"
 
-# --- Post-login indicators (used for session validity checks) ---
-# TODO_DISCOVERY: replace with a real authenticated-only element (e.g. user
-# avatar, "Console" heading, logout link) once known.
+# --- Post-login indicators (session validity) ---
+# CONFIRMED 2026-08-23: TC-001 correctly detected both the invalid
+# pre-login state and the valid post-login state using these.
 AUTHENTICATED_MARKER_TEXT = "Console"
-LOGIN_PAGE_MARKER_TEXT = "Login"  # if this is visible, we are NOT authenticated
+LOGIN_PAGE_MARKER_TEXT = "Login"
 
-# --- Sidebar navigation ---
-NAV_EQUIPMENT_MANAGEMENT = "text=Equipment Management"
-NAV_DEVICE_INFORMATION = "text=Device Information"
+# --- Device Information page ---
+# CONFIRMED 2026-08-23. The outer "?ref=addtabs" URL just wraps this in an
+# iframe for the tabbed admin shell; navigating straight to the iframe's
+# own src (addtabs=1) avoids the sidebar's slide-toggle submenu, which
+# does not reliably respond to a plain Playwright click (see
+# docs/target_application_integration_spec.md).
+DEVICE_INFORMATION_PATH = "/NgsEmfuaOv.php/device/device"
+DEVICE_LIST_API_PATH = "/NgsEmfuaOv.php/device/device/index"
+DEVICE_LIST_API_PAGE_SIZE = 100
 
-# --- Device Information table ---
-# TODO_DISCOVERY: confirm this actually renders as a <table>. Many admin
-# panels (Element UI / Ant Design, which this app's URL pattern suggests)
-# render "tables" as divs with role=row/role=cell instead. If so, update
-# DEVICE_TABLE_CONTAINER / DEVICE_TABLE_ROW / DEVICE_TABLE_CELL and the
-# extraction logic in equipment_extractor.py accordingly.
-DEVICE_TABLE_CONTAINER = "table"
-DEVICE_TABLE_HEADER_ROW = "thead tr"
+# --- Device Information table (DOM fallback only — see module docstring) ---
+DEVICE_TABLE_CONTAINER = "table#table"
+DEVICE_TABLE_HEADER_ROW = "table#table thead tr"
 DEVICE_TABLE_HEADER_CELL = "th"
-DEVICE_TABLE_BODY_ROW = "tbody tr"
+DEVICE_TABLE_BODY_ROW = "table#table tbody tr"
 DEVICE_TABLE_BODY_CELL = "td"
-
-# Pagination (62 machines strongly implies a paged table).
-# TODO_DISCOVERY: confirm control markup; this targets common
-# "next page" affordances.
 PAGINATION_NEXT_BUTTON = (
-    "button[aria-label*='next' i], "
-    "li.btn-next, "
-    "a:has-text('Next'), "
-    "button:has-text('Next')"
+    "button[aria-label*='next' i], li.btn-next, a:has-text('Next'), button:has-text('Next')"
 )
 
-# Expected raw column header labels -> our internal field names.
-# Extend this mapping as more optional fields are confirmed during discovery.
-# Keys are matched case-insensitively against the table's header text.
+# Raw JSON API field -> our canonical EquipmentRecord field. Supports
+# dotted paths for nested objects (e.g. device_type.name).
+# CONFIRMED against a live response on 2026-08-23 (6 devices, incl. the
+# ID 205 / NEXUS example from the spec).
+API_FIELD_MAP: dict[str, str] = {
+    "id": "equipment_id",
+    "sn": "equipment_code",
+    "name": "name",
+    "device_type.name": "device_type",
+    "status_text": "status",
+    "online_status_text": "network_status",
+    "fault_status_text": "fault_type",
+    "lack_status_text": "material_shortage_status",
+    "ad_group.name": "advertising_group",
+    "address": "device_address",
+    "shop_price": "selling_price",
+    # UNCONFIRMED: no field literally named "remaining oranges" appears in
+    # the API row despite the DOM column header claiming data-field
+    # "orange_num" (likely a client-side bootstrap-table formatter, not a
+    # raw field). Best guess pending confirmation against a device with
+    # known remaining stock.
+    "orange_weight": "remaining_oranges",
+}
+
+# Raw DOM header text (as rendered) -> canonical field, for the DOM
+# fallback path only.
 COLUMN_HEADER_MAP: dict[str, str] = {
     "id": "equipment_id",
     "status": "status",
@@ -70,5 +97,5 @@ COLUMN_HEADER_MAP: dict[str, str] = {
     "name": "name",
     "device address": "device_address",
     "selling price": "selling_price",
-    "remaining oranges": "remaining_oranges",
+    "remaining number of oranges": "remaining_oranges",
 }
