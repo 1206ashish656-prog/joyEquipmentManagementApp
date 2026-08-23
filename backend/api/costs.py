@@ -1,13 +1,14 @@
 """
 Cost Management tab (admin-only): log raw-material/operating costs
-against standard categories (or a custom one via "Others"), and
-summarize them over a period — same Daily/Weekly/Monthly/YTD/custom
-period shape as Order Summary (backend/period_utils.py), breakdown by
-category/vendor/item name in any combination (costs/rollup.py).
+against standard categories (or a custom one via "Others"), summarize
+them over a period — same Daily/Weekly/Monthly/YTD/custom period shape
+as Order Summary (backend/period_utils.py), breakdown by
+category/vendor/item name in any combination (costs/rollup.py) — and
+view/filter/edit/delete the underlying raw entries, since a rollup total
+alone doesn't let an admin fix or remove a single bad entry.
 """
 from __future__ import annotations
 
-import json
 from datetime import date as date_cls
 from decimal import Decimal, InvalidOperation
 
@@ -24,13 +25,27 @@ from db.models import STANDARD_COST_CATEGORIES, UNSPECIFIED_VENDOR, CostEntry, U
 router = APIRouter()
 
 STAFF_SALARIES_CATEGORY = "Staff Salaries"
+RAW_ROWS_LIMIT = 300  # a hard cap so one huge period doesn't render an unbounded table
 
 
-class _DecimalEncoder(json.JSONEncoder):
-    def default(self, o):
-        if isinstance(o, Decimal):
-            return float(o)
-        return super().default(o)
+def _resolve_category_and_vendor(category: str, custom_category: str, vendor_name: str) -> tuple[str, str | None]:
+    """Shared by create and edit — same rules both times: "Others" ->
+    the admin's typed text becomes the real category; vendor is skipped
+    for Staff Salaries and defaults to a filterable placeholder if left
+    blank for every other category."""
+    resolved_category = custom_category.strip() if category == "Others" else category
+    if not resolved_category:
+        resolved_category = "Others"
+
+    if resolved_category == STAFF_SALARIES_CATEGORY:
+        resolved_vendor = None
+    else:
+        resolved_vendor = vendor_name.strip() or UNSPECIFIED_VENDOR
+    return resolved_category, resolved_vendor
+
+
+def _distinct(db: Session, column) -> list[str]:
+    return sorted({row[0] for row in db.execute(select(column).distinct()) if row[0]})
 
 
 @router.get("/costs", response_class=HTMLResponse)
@@ -52,9 +67,22 @@ def costs_summary(
     by_vendor = q.get("by_vendor", "0") == "1"
     by_item = q.get("by_item", "0") == "1"
 
-    rows = db.execute(
-        select(CostEntry).where(CostEntry.date >= start, CostEntry.date <= end)
-    ).scalars().all()
+    # "Admin should be able to view raw data for selected item, category
+    # or vendor" -- these narrow BOTH the rollup and the raw-entries list
+    # below it, so the two stay consistent with each other.
+    filter_category = q.get("filter_category", "").strip()
+    filter_vendor = q.get("filter_vendor", "").strip()
+    filter_item = q.get("filter_item", "").strip()
+
+    query = select(CostEntry).where(CostEntry.date >= start, CostEntry.date <= end)
+    if filter_category:
+        query = query.where(CostEntry.category == filter_category)
+    if filter_vendor:
+        query = query.where(CostEntry.vendor_name == filter_vendor)
+    if filter_item:
+        query = query.where(CostEntry.item_name == filter_item)
+
+    rows = db.execute(query).scalars().all()
 
     group_by = tuple(
         dim for dim, flag in
@@ -64,6 +92,10 @@ def costs_summary(
     table_rows = rollup(rows, group_by=group_by)
     overall = rollup(rows, group_by=())
     overall_row = overall[0] if overall else None
+
+    raw_rows_all = sorted(rows, key=lambda r: (r.date, r.id), reverse=True)
+    raw_truncated = len(raw_rows_all) > RAW_ROWS_LIMIT
+    raw_rows = raw_rows_all[:RAW_ROWS_LIMIT]
 
     return templates.TemplateResponse(
         request,
@@ -77,10 +109,19 @@ def costs_summary(
             "by_category": by_category,
             "by_vendor": by_vendor,
             "by_item": by_item,
+            "filter_category": filter_category,
+            "filter_vendor": filter_vendor,
+            "filter_item": filter_item,
+            "all_categories": _distinct(db, CostEntry.category),
+            "all_vendors": _distinct(db, CostEntry.vendor_name),
+            "all_items": _distinct(db, CostEntry.item_name),
             "group_by_labels": [d.replace("category", "Category").replace("vendor_name", "Vendor").replace("item_name", "Item") for d in group_by] or ["(no breakdown — total)"],
             "table_rows": table_rows,
             "overall_row": overall_row,
             "has_data": bool(rows),
+            "raw_rows": raw_rows,
+            "raw_total_count": len(raw_rows_all),
+            "raw_truncated": raw_truncated,
             "standard_categories": STANDARD_COST_CATEGORIES,
             "staff_salaries_category": STAFF_SALARIES_CATEGORY,
             "today": date_cls.today().isoformat(),
@@ -99,21 +140,7 @@ def create_cost_entry(
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    # "Others" is a UI sentinel only -- the admin's typed-in text becomes
-    # the actual stored category, per "If admin select other, ask admin
-    # to specify the category explicitly."
-    resolved_category = custom_category.strip() if category == "Others" else category
-    if not resolved_category:
-        resolved_category = "Others"
-
-    # Vendor isn't applicable to Staff Salaries at all (not asked, not
-    # stored); every other category gets a filterable placeholder if left
-    # blank rather than a bare NULL.
-    if resolved_category == STAFF_SALARIES_CATEGORY:
-        resolved_vendor = None
-    else:
-        resolved_vendor = vendor_name.strip() or UNSPECIFIED_VENDOR
-
+    resolved_category, resolved_vendor = _resolve_category_and_vendor(category, custom_category, vendor_name)
     try:
         resolved_amount = Decimal(amount)
     except InvalidOperation:
@@ -129,4 +156,73 @@ def create_cost_entry(
             created_by_user_id=admin.id,
         )
     )
+    return RedirectResponse(url="/costs", status_code=303)
+
+
+@router.get("/costs/{entry_id}/edit", response_class=HTMLResponse)
+def edit_cost_entry_form(
+    entry_id: int,
+    request: Request,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    entry = db.get(CostEntry, entry_id)
+    if entry is None:
+        return templates.TemplateResponse(request, "not_found.html", {"user": admin}, status_code=404)
+
+    is_standard = entry.category in STANDARD_COST_CATEGORIES
+    return templates.TemplateResponse(
+        request,
+        "cost_entry_edit.html",
+        {
+            "user": admin,
+            "entry": entry,
+            "standard_categories": STANDARD_COST_CATEGORIES,
+            "staff_salaries_category": STAFF_SALARIES_CATEGORY,
+            "is_standard_category": is_standard,
+        },
+    )
+
+
+@router.post("/costs/{entry_id}/edit")
+def update_cost_entry(
+    entry_id: int,
+    date: str = Form(...),
+    category: str = Form(...),
+    custom_category: str = Form(""),
+    vendor_name: str = Form(""),
+    item_name: str = Form(...),
+    amount: str = Form(...),
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    entry = db.get(CostEntry, entry_id)
+    if entry is None:
+        return RedirectResponse(url="/costs", status_code=303)
+
+    resolved_category, resolved_vendor = _resolve_category_and_vendor(category, custom_category, vendor_name)
+    try:
+        resolved_amount = Decimal(amount)
+    except InvalidOperation:
+        # A bad amount on edit shouldn't silently zero out a real,
+        # previously-valid entry -- keep what was there.
+        resolved_amount = entry.amount
+
+    entry.date = date
+    entry.category = resolved_category
+    entry.vendor_name = resolved_vendor
+    entry.item_name = item_name.strip()
+    entry.amount = resolved_amount
+    return RedirectResponse(url="/costs", status_code=303)
+
+
+@router.post("/costs/{entry_id}/delete")
+def delete_cost_entry(
+    entry_id: int,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    entry = db.get(CostEntry, entry_id)
+    if entry is not None:
+        db.delete(entry)
     return RedirectResponse(url="/costs", status_code=303)

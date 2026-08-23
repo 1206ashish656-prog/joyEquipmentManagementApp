@@ -149,3 +149,10 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 > - maintain staff database with employment start and end date
 > - Admin add leaves on behalf of staff in the system
 > - if any staff take leaves more than 2 days in a month, highlight that staff explicitly
+
+**24.**
+> reply on pending design query, Ops staff should not see order summary at all
+> In addition, few additional characteristics required in cost management tool
+> - admin should be able to view raw data for selected item, category or vendor
+> - access to modify or delete historical data if seems inappropriate
+> - editable historical entires as well

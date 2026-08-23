@@ -27,9 +27,19 @@ role (`operations`/`venue_partner` get `403`, same as `/users`):
 - `backend/period_utils.py` extracted from Order Summary's period-range
   logic (now shared by both features) and gained a `custom` period —
   Order Summary can use it too, though its UI doesn't expose it yet.
+- Cost Management gained, per follow-up request: filter dropdowns to
+  view raw data for a selected category/vendor/item (narrows both the
+  rollup and a new Raw Entries table beneath it); edit and delete on any
+  logged entry, with the same category/vendor resolution rules as
+  creation reused for edits (`_resolve_category_and_vendor`). A
+  never-edited entry's `updated_at` stays `NULL`.
+
+Also resolved the RBAC open question from 2.0.0: **operations staff do
+not see Order Summary at all**, confirmed — no code change needed, that
+was already how `require_venue_partner` was built.
 
 See README's "Cost Management and Staff & Leave Management" section for
-the full picture. 179/179 tests passing.
+the full picture. 192/192 tests passing.
 
 ## [2.0.0] — 2026-08-24
 
@@ -135,10 +145,13 @@ Not silently dropped — these are the open items, roughly in the order
 they'd matter for taking this beyond local/demo use. See
 `docs/NEXT_SESSION_PROMPT.md` for more detail on each.
 
+**Resolved:**
+- Whether `operations` staff should see Order Summary — **no, confirmed
+  2026-08-24.** Matches how it was already built: `require_venue_partner`
+  only admits `admin`/`venue_partner`, `operations` gets `403`. No code
+  change needed, just closing out the open question.
+
 **Needs a decision from the user:**
-- Should `operations` staff get read-only, unscoped access to Order
-  Summary, or does order data stay admin/venue-partner-only as built?
-  (Asked, not yet answered.)
 - The `Warehouse` device (`avg_price = ₹0.01`, 10 orders total) is still
   unexplained — real data, not a bug, but not investigated.
 - Chart.js trend-line colors are still generic (blue/green/orange/red),

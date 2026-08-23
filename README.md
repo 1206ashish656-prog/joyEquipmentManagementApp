@@ -374,6 +374,14 @@ breakdown by category/vendor/item name (`costs/rollup.py`, sums `amount`
 and counts entries — no weighted averages needed here, unlike order
 pricing).
 
+The same page also lets the admin **filter to a single category, vendor,
+or item** (narrows both the rollup and a "Raw Entries" table of the
+underlying individual rows), and **edit or delete any logged entry**
+(`/costs/{id}/edit`, `/costs/{id}/delete`) — editing reuses the exact
+same category/vendor resolution rules as creating a new entry, so
+switching an edited row to "Others" or to "Staff Salaries" behaves
+identically to doing so on the add form.
+
 **Staff & Leave Management** (`/staff`, `staff/` package) — a staff
 roster (name, employment start date, optional end date — offboarding
 sets the end date rather than deleting the row, so past leave stays

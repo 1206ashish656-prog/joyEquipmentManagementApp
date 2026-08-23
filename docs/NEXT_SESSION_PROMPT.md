@@ -217,7 +217,7 @@ dashboard (chosen over Next.js — confirmed with the user; see README).
 - Confirm real-world fault/shortage vocabulary once (if) this account produces an actual non-"Normal" reading — current rule table is only validated against the spec's illustrative examples
 - Configurable dashboard session lifetime (fixed 7 days currently)
 - Optional Next.js frontend swap, if still wanted after using the server-rendered dashboard
-- Cost Management / Staff & Leave: no edit/delete on a cost entry, staff record, or leave once logged (a typo today means a new correcting entry, not a fix-in-place) — add if it becomes a real friction point
+- Cost Management gained edit/delete + raw-data filtering (2026-08-24, per follow-up request) — see README. Staff & Leave still has no edit/delete on a staff record or a logged leave (a typo today means a new correcting entry/offboard-and-recreate, not a fix-in-place) — add if it becomes a real friction point
 - Cost Management has no trend chart (Order Summary's Chart.js pattern would drop in easily if wanted)
 - No bulk import for either (e.g. a CSV of historical costs/leaves) — everything's one entry at a time via the form
 

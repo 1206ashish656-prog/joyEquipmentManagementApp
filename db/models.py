@@ -345,6 +345,10 @@ class CostEntry(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    # Set only on an edit (stays NULL for a never-edited entry) — lets the
+    # UI show "edited" without needing a separate audit table for what's
+    # still a lightweight, single-admin-editable record.
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, onupdate=_utcnow)
 
 
 # --- Staff & leave management (admin-only — see backend/api/staff.py) ---

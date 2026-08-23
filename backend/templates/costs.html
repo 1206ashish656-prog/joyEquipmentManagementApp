@@ -33,11 +33,44 @@
       <label class="checkbox-label"><input type="checkbox" name="by_item" value="1" {% if by_item %}checked{% endif %}> Break down by item name</label>
       {% if not by_category %}<input type="hidden" name="by_category" value="0">{% endif %}
     </div>
+    <div class="filter-group">
+      <label>View raw data for category
+        <select name="filter_category">
+          <option value="">— all categories —</option>
+          {% for c in all_categories %}
+          <option value="{{ c }}" {% if c == filter_category %}selected{% endif %}>{{ c }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>vendor
+        <select name="filter_vendor">
+          <option value="">— all vendors —</option>
+          {% for v in all_vendors %}
+          <option value="{{ v }}" {% if v == filter_vendor %}selected{% endif %}>{{ v }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>item
+        <select name="filter_item">
+          <option value="">— all items —</option>
+          {% for i in all_items %}
+          <option value="{{ i }}" {% if i == filter_item %}selected{% endif %}>{{ i }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
     <button type="submit">Apply</button>
   </form>
   <table class="kv" style="margin-top:10px;">
     <tr><td>Date range</td><td>{{ start }}{% if end != start %} to {{ end }}{% endif %}</td></tr>
     <tr><td>Breakdown</td><td>{{ group_by_labels|join(", ") }}</td></tr>
+    {% if filter_category or filter_vendor or filter_item %}
+    <tr><td>Filtered to</td><td>
+      {% if filter_category %}Category: {{ filter_category }}{% endif %}
+      {% if filter_vendor %}{% if filter_category %} · {% endif %}Vendor: {{ filter_vendor }}{% endif %}
+      {% if filter_item %}{% if filter_category or filter_vendor %} · {% endif %}Item: {{ filter_item }}{% endif %}
+    </td></tr>
+    {% endif %}
   </table>
 </section>
 
@@ -70,6 +103,34 @@
       </tr>
       {% else %}
       <tr><td colspan="5">No cost entries in this period.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Raw Entries{% if raw_truncated %} <span style="font-weight:400;color:var(--muted);font-size:0.8em;">(showing most recent {{ raw_rows|length }} of {{ raw_total_count }} — narrow the filters above to see the rest)</span>{% endif %}</h2>
+  <table class="equipment-table">
+    <thead>
+      <tr><th>Date</th><th>Category</th><th>Vendor</th><th>Item</th><th>Amount</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for entry in raw_rows %}
+      <tr>
+        <td>{{ entry.date }}</td>
+        <td>{{ entry.category }}</td>
+        <td>{{ entry.vendor_name or "—" }}</td>
+        <td>{{ entry.item_name }}</td>
+        <td>₹{{ "%.2f"|format(entry.amount) }}</td>
+        <td>
+          <a href="/costs/{{ entry.id }}/edit">Edit</a>
+          <form method="post" action="/costs/{{ entry.id }}/delete" style="display:inline;" onsubmit="return confirm('Delete this cost entry? This cannot be undone.');">
+            <button type="submit" class="linklike">Delete</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">No cost entries in this period.</td></tr>
       {% endfor %}
     </tbody>
   </table>
