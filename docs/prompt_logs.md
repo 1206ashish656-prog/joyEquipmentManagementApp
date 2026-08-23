@@ -115,3 +115,20 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 > Gravity - Prestige Tech Park
 >
 > Add prompt logs as well. Store prompts provide till now as well current in that prompt logs file
+
+**18.**
+> How can i verify the ops and venue_partner demo. What are the credentials set for these?
+
+**19.**
+> what were the admin credentials
+
+**19a.** `[choice]` Yes, set a new password *(answer to "Want me to reset the admin password now so you can log in?")*
+
+**19b.** *(Redacted — the user supplied a literal password value for the admin account in the next message. Not reproduced here: this file is committed to git, and a credential — even a throwaway local-demo one — has no business in a permanent log. See the "Passwords must never appear in..." constraint from the original spec, entry 1.)*
+
+**20.**
+> For admin view of order summary, add two more attributes which are revenue calculated as product of number of glasses & price and number of oranges per glass calculated as ratio of total oranges and total glasses
+
+**20a.** `[choice]` Admin only *(answer to "Should Revenue and Oranges/Glass be visible only to admins... or added... for everyone?")*
+
+**20b.** `[choice]` number_of_orders (Recommended) *("Number of glasses" definition)*
