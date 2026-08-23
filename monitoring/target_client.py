@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
+import string
 from urllib.parse import parse_qs, unquote, urlparse
 
 from playwright.async_api import Error as PlaywrightError
@@ -35,7 +37,10 @@ from .selectors import (
     DEVICE_TABLE_CONTAINER,
     DEVICE_TABLE_HEADER_CELL,
     DEVICE_TABLE_HEADER_ROW,
+    LOGIN_CAPTCHA_INPUT,
+    LOGIN_KEEPLOGIN_CHECKBOX,
     LOGIN_PASSWORD_INPUT,
+    LOGIN_SUBMIT_BUTTON,
     LOGIN_USERNAME_INPUT,
     PAGINATION_NEXT_BUTTON,
 )
@@ -100,9 +105,20 @@ class TargetApplicationClient:
         return True
 
     async def authenticate(self) -> None:
-        """Human-in-the-loop login. Per requirement #3, this deliberately
-        does NOT attempt to solve the CAPTCHA — it prefills what it safely
-        can and hands control to a person for the CAPTCHA + submit."""
+        """Logs in. Behavior is controlled by settings.auto_solve_captcha:
+
+        - False (default): human-in-the-loop, as originally specified —
+          prefills credentials and waits for a person to complete the
+          CAPTCHA and submit.
+        - True: fully automated, INCLUDING the CAPTCHA field. This is an
+          explicit, deliberate deviation from the original "never bypass
+          CAPTCHA" requirement, enabled only because the account owner
+          confirmed the target's captcha endpoint does not actually
+          validate the code shown against the code submitted (any 4
+          characters are accepted) and explicitly authorized automating
+          past it on their own account. See README's "CAPTCHA automation"
+          section before enabling this against a different target.
+        """
         try:
             await self.page.goto(self.settings.target_login_url, wait_until="domcontentloaded", timeout=20000)
         except PlaywrightTimeoutError as e:
@@ -110,27 +126,57 @@ class TargetApplicationClient:
         except PlaywrightError as e:
             raise TargetUnavailableError(f"Could not reach login page: {e}") from e
 
-        if self.settings.headless:
+        if not self.settings.has_credentials:
             raise AuthenticationRequiredError(
-                "No valid session, and running headless: the CAPTCHA requires a "
-                "human. Re-run with HEADLESS=false, complete login once, and the "
-                "saved session can then be reused (including headlessly) until it "
-                "expires."
+                "TARGET_USERNAME/TARGET_PASSWORD not set — cannot authenticate."
             )
 
-        if self.settings.has_credentials:
-            try:
-                await self.page.fill(LOGIN_USERNAME_INPUT, self.settings.target_username, timeout=5000)
-                await self.page.fill(LOGIN_PASSWORD_INPUT, self.settings.target_password, timeout=5000)
-                logger.info("Prefilled username/password. Please complete the CAPTCHA and submit.")
-            except PlaywrightError:
-                logger.info(
-                    "Could not auto-fill credentials (selectors not confirmed yet — "
-                    "see selectors.py TODO_DISCOVERY items). Please log in manually."
-                )
-        else:
-            logger.info("TARGET_USERNAME/TARGET_PASSWORD not set — please log in manually.")
+        try:
+            await self.page.fill(LOGIN_USERNAME_INPUT, self.settings.target_username, timeout=5000)
+            await self.page.fill(LOGIN_PASSWORD_INPUT, self.settings.target_password, timeout=5000)
+        except PlaywrightError as e:
+            raise ExtractionError(
+                f"Could not fill username/password fields — login page structure "
+                f"may have changed: {e}"
+            ) from e
 
+        if self.settings.auto_solve_captcha:
+            await self._submit_login_auto()
+        else:
+            await self._submit_login_manual()
+
+        if not await self.is_session_valid():
+            raise AuthenticationRequiredError(
+                "Still redirected to login after login attempt. Check credentials, "
+                "or that the CAPTCHA/login actually completed."
+            )
+        logger.info("Authentication confirmed — session established.")
+
+    async def _submit_login_auto(self) -> None:
+        """Fills the CAPTCHA field with 4 throwaway characters (the target
+        does not validate them against the displayed image) and submits
+        directly — no human involved. See authenticate()'s docstring."""
+        code = "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(4))
+        try:
+            await self.page.fill(LOGIN_CAPTCHA_INPUT, code, timeout=5000)
+        except PlaywrightError as e:
+            raise ExtractionError(f"Could not fill CAPTCHA field — page structure may have changed: {e}") from e
+
+        try:
+            await self.page.check(LOGIN_KEEPLOGIN_CHECKBOX, timeout=3000)
+        except PlaywrightError:
+            pass  # optional; not fatal if the checkbox moved/renamed
+
+        try:
+            await self.page.click(LOGIN_SUBMIT_BUTTON, timeout=5000)
+            await self.page.wait_for_load_state("networkidle", timeout=15000)
+        except PlaywrightError as e:
+            raise ExtractionError(f"Could not submit the login form: {e}") from e
+
+        logger.info("Submitted login automatically (CAPTCHA field=%r, no human involved).", code)
+
+    async def _submit_login_manual(self) -> None:
+        logger.info("Prefilled username/password. Please complete the CAPTCHA and submit.")
         print("\n" + "=" * 70)
         print("ACTION REQUIRED — Login page is open in the browser window.")
         print("Please complete the CAPTCHA and submit the login form yourself.")
@@ -139,30 +185,18 @@ class TargetApplicationClient:
         print("=" * 70)
 
         # Poll page.url (a local property — does NOT navigate) rather than
-        # blocking on console input(). This works whether a human is typing
-        # into this process's own terminal or just watching/driving the
-        # visible browser window directly (e.g. a monitoring worker running
-        # as a service, or this process being driven by tooling rather than
-        # an interactive shell). Deliberately does not call
+        # blocking on console input(). Deliberately does not call
         # is_session_valid() in the loop — that does a page.goto(), which
         # would yank the browser away from the login form mid-CAPTCHA-entry.
         deadline = asyncio.get_event_loop().time() + self.settings.auth_manual_timeout_seconds
         while asyncio.get_event_loop().time() < deadline:
             if "login" not in self.page.url.lower():
-                break
+                return
             await asyncio.sleep(2)
-        else:
-            raise AuthenticationRequiredError(
-                f"Timed out after {self.settings.auth_manual_timeout_seconds}s waiting for "
-                "manual login/CAPTCHA completion (still on the login page)."
-            )
-
-        if not await self.is_session_valid():
-            raise AuthenticationRequiredError(
-                "Still redirected to login after manual login attempt. Check "
-                "credentials, or that the CAPTCHA/login actually completed."
-            )
-        logger.info("Authentication confirmed — session established.")
+        raise AuthenticationRequiredError(
+            f"Timed out after {self.settings.auth_manual_timeout_seconds}s waiting for "
+            "manual login/CAPTCHA completion (still on the login page)."
+        )
 
     async def open_device_information(self) -> None:
         """Navigates directly to the Device Information content URL.

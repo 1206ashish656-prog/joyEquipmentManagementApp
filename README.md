@@ -48,6 +48,37 @@ and is still what `discovery/inspect.py`, `poc_runner.py`, and
 tools where a real browser is the point. The row-mapping logic both
 clients share now lives in `monitoring/mapping.py`.
 
+### ⚠️ CAPTCHA automation — an explicit, deliberate deviation from the original spec
+
+**The original spec for this project explicitly prohibits this** (§3:
+"must NOT be designed around bypassing or defeating CAPTCHA"; §33 lists
+"Attempt to bypass CAPTCHA" as a non-goal), and that stance is the sane
+default. `AUTO_SOLVE_CAPTCHA` in `.env` exists only because, on
+2026-08-23, the account owner identified and explicitly authorized
+exploiting a bug in this specific target: its CAPTCHA field is never
+actually validated against the code shown in the image — any 4
+alphanumeric characters are accepted. With the flag enabled,
+`authenticate()` fills that field with a random 4-character string and
+submits immediately; no human, no visible browser, no wait. Verified
+live from a fully deleted session: `is_session_valid()` correctly
+detected no session, `_reauthenticate()` completed with zero human input,
+and the next poll cycle succeeded (6/6 records).
+
+This is **default OFF** (`AUTO_SOLVE_CAPTCHA=false` in `.env.example`)
+and should stay that way for any other target. The human-in-the-loop path
+(`_submit_login_manual`) is fully intact and is what runs whenever this
+flag is left at its default — see `target_client.py`'s `authenticate()`.
+
+Fixing this also surfaced a real bug: `LightweightTargetClient
+.is_session_valid()` previously probed the dashboard shell page, which
+(confirmed live) returns HTTP 200 with **no redirect even with zero
+cookies at all** — a false-positive trap for "no session yet" that let a
+poll cycle proceed straight to a failed data fetch instead of
+re-authenticating first. It now probes the actual list API
+(`limit=1`) and checks the JSON shape directly — see
+`docs/target_application_integration_spec.md`'s "Session validity"
+section for the full story.
+
 ### Known gap: real Postgres and real SMTP still unverified
 
 This dev environment has neither Docker/Postgres nor SMTP credentials
@@ -126,11 +157,15 @@ One full poll cycle against the live target — check session validity
 (plain HTTP), evaluate health, persist snapshot/current-state,
 open/escalate/resolve fault incidents, and notify subscribers on any of
 those events. Add `--loop` to repeat forever on `POLL_INTERVAL_SECONDS`.
-If there's no saved session yet (first run) or it's expired, a
-**visible** Playwright browser opens just long enough for a human to
-complete the CAPTCHA (`HEADLESS=false`), then closes — every cycle after
-that reuses `data/storage_state/session.json` (git-ignored) via plain
-HTTP requests, no browser at all. See "No persistent browser" above.
+If there's no saved session yet (first run) or it's expired, a Playwright
+browser opens just long enough to log in, then closes — every cycle
+after that reuses `data/storage_state/session.json` (git-ignored) via
+plain HTTP requests, no browser at all. With `AUTO_SOLVE_CAPTCHA=false`
+(the sane default for any target other than the one this was explicitly
+authorized against — see "⚠️ CAPTCHA automation" above), that browser is
+**visible** (`HEADLESS=false`) and waits for a human to complete the
+CAPTCHA. With `AUTO_SOLVE_CAPTCHA=true`, it runs fully headless with zero
+human input. See "No persistent browser" above.
 
 Any technical failure (target unreachable, extraction error, session
 expiring mid-run) is classified into a `MonitoringState`

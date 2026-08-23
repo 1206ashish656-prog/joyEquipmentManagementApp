@@ -12,7 +12,7 @@ venv/
 env/
 
 # Playwright / session artifacts (may contain cookies/session tokens)
-data/storage_state/*.json
+data/storage_state/*
 data/discovery_output/
 data/*.db
 playwright-report/

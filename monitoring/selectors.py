@@ -27,11 +27,16 @@ fallback path is ever exercised for real.
 from __future__ import annotations
 
 # --- Login page ---
-# TODO_DISCOVERY: input selectors worked for prefill during TC-001 (no
-# error was logged), but weren't independently confirmed byte-for-byte —
-# revisit if prefill ever silently targets the wrong field.
-LOGIN_USERNAME_INPUT = "input[name='username'], input[name='account'], input[type='text']"
-LOGIN_PASSWORD_INPUT = "input[name='password'], input[type='password']"
+# CONFIRMED 2026-08-23 via direct DOM inspection of the live login form
+# (data/discovery_output/login_page_fresh.html). ThinkPHP/FastAdmin-style
+# form: username/password/captcha inputs, a "keeplogin" checkbox, and a
+# captcha image served from /index.php?s=/captcha (regenerable via its
+# onclick handler — irrelevant to us, see AUTO_SOLVE_CAPTCHA below).
+LOGIN_USERNAME_INPUT = "input[name='username']"
+LOGIN_PASSWORD_INPUT = "input[name='password']"
+LOGIN_CAPTCHA_INPUT = "input[name='captcha']"
+LOGIN_KEEPLOGIN_CHECKBOX = "input[name='keeplogin']"
+LOGIN_SUBMIT_BUTTON = "button[type='submit']"
 
 # --- Post-login indicators (session validity) ---
 # CONFIRMED 2026-08-23: TC-001 correctly detected both the invalid

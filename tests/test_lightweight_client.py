@@ -57,13 +57,19 @@ def test_load_cookies_skips_malformed_entries(tmp_path):
 
 
 # --- is_session_valid ---
+# Probes the actual list API (not the dashboard shell page) — this
+# target's dashboard shell renders HTTP 200 with zero cookies at all, so
+# a URL/status-only check on it is a false-positive trap. Confirmed live:
+# a fully cookie-less request to the dashboard returned 200 with no
+# redirect, while the list API correctly returned a FastAdmin
+# "please log in" JSON payload.
 
 @pytest.mark.asyncio
-async def test_is_session_valid_true_when_not_redirected_to_login(tmp_path):
+async def test_is_session_valid_true_when_api_returns_rows(tmp_path):
     settings = _settings(tmp_path)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, text="<html>Console</html>")
+        return httpx.Response(200, json={"total": 6, "rows": []})
 
     client = LightweightTargetClient(settings)
     client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
@@ -71,17 +77,46 @@ async def test_is_session_valid_true_when_not_redirected_to_login(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_is_session_valid_false_when_redirected_to_login(tmp_path):
+async def test_is_session_valid_false_on_fastadmin_login_required_payload(tmp_path):
+    """Reproduces the exact payload observed live from a cookie-less
+    request: {"code":0,"msg":"...","url":"/.../login?...","wait":3}"""
     settings = _settings(tmp_path)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if "login" in str(request.url):
-            return httpx.Response(200, text="login page")
-        return httpx.Response(302, headers={"Location": "/NgsEmfuaOv.php/index/login"})
+        return httpx.Response(200, json={
+            "code": 0, "msg": "please log in", "data": "",
+            "url": "/NgsEmfuaOv.php/index/login?url=%2Fdevice%2Fdevice", "wait": 3,
+        })
 
     client = LightweightTargetClient(settings)
-    transport = httpx.MockTransport(handler)
-    client._http = httpx.AsyncClient(transport=transport, follow_redirects=True)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    assert await client.is_session_valid() is False
+
+
+@pytest.mark.asyncio
+async def test_is_session_valid_false_on_unrecognized_shape(tmp_path):
+    """Neither the valid shape nor the known invalid shape — treated as
+    invalid rather than assumed valid (uncertainty never becomes a
+    false-positive "session is fine")."""
+    settings = _settings(tmp_path)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"unexpected": "shape"})
+
+    client = LightweightTargetClient(settings)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    assert await client.is_session_valid() is False
+
+
+@pytest.mark.asyncio
+async def test_is_session_valid_false_on_non_json_response(tmp_path):
+    settings = _settings(tmp_path)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="<html>not json</html>")
+
+    client = LightweightTargetClient(settings)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     assert await client.is_session_valid() is False
 
 
@@ -96,6 +131,28 @@ async def test_is_session_valid_raises_target_unavailable_on_connection_error(tm
     client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     with pytest.raises(TargetUnavailableError):
         await client.is_session_valid()
+
+
+@pytest.mark.asyncio
+async def test_get_equipment_data_raises_authentication_required_mid_fetch(tmp_path):
+    """Session expires between is_session_valid() and get_equipment_data()
+    (or that check is skipped) — must be classified as an auth failure,
+    not a generic extraction error, so the worker knows to re-authenticate
+    next cycle rather than just logging a mystery schema error."""
+    from monitoring.models import AuthenticationRequiredError
+
+    settings = _settings(tmp_path)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "code": 0, "msg": "please log in", "data": "",
+            "url": "/NgsEmfuaOv.php/index/login?url=%2Fdevice%2Fdevice", "wait": 3,
+        })
+
+    client = LightweightTargetClient(settings)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(AuthenticationRequiredError):
+        await client.get_equipment_data()
 
 
 # --- get_equipment_data ---

@@ -25,15 +25,65 @@ FastAdmin-style (ThinkPHP) back office, tabbed/iframe admin shell:
   `visible: false`. We sidestep this entirely by navigating directly to
   the iframe's confirmed URL instead of driving the sidebar UI.
 
+## Login form fields (confirmed 2026-08-23)
+
+Direct DOM inspection of the live login form (ThinkPHP/FastAdmin style):
+
+| Field | Selector | Notes |
+|---|---|---|
+| Username | `input[name='username']` | |
+| Password | `input[name='password']` | |
+| CAPTCHA | `input[name='captcha']` | text input, placeholder "验证码" (verification code) |
+| CAPTCHA image | `img[src="/index.php?s=/captcha"]` | regenerates via its own `onclick` handler |
+| Remember me | `input[name='keeplogin']` | checkbox — checking it is a small enhancement to reduce reauth frequency |
+| Submit | `button[type='submit']` | text "登 录" (Login) |
+
+## CAPTCHA behavior — confirmed glitch, account-owner-authorized automation
+
+**Update 2026-08-23:** the account owner confirmed and explicitly authorized
+exploiting a target-side bug: the CAPTCHA field's submitted value is never
+actually validated against the code shown in the image — any 4
+alphanumeric characters are accepted. Verified live: `authenticate()` now
+fills the CAPTCHA field with a random 4-character string
+(`monitoring/target_client.py::_submit_login_auto`) and the login
+succeeds regardless of what the displayed image actually shows.
+
+This directly contradicts the original project requirement ("must NOT be
+designed around bypassing or defeating CAPTCHA" / "never attempt to
+bypass CAPTCHA" — sections 3 and 33 of the original spec), which is why
+it is implemented as an explicit, default-OFF opt-in
+(`AUTO_SOLVE_CAPTCHA` — see `.env.example`) rather than a silent
+behavior change, and documented here rather than presented as "the
+system just doesn't need a human anymore." The human-in-the-loop path
+(`_submit_login_manual`) is fully preserved and is what runs when this
+flag is left at its default.
+
 ## Session validity
 
-- Confirmed marker for "authenticated": the text `Console` is present and
-  visible on the post-login dashboard.
-- Confirmed marker for "session invalid/expired": current URL contains
-  `login` after navigating to the dashboard URL.
-- Both were exercised for real in TC-001 (first run: correctly detected
-  no session and triggered login; second run: correctly detected the
-  saved session as valid and skipped login entirely).
+- Confirmed marker for "authenticated" (Playwright-based client,
+  `target_client.py`): the text `Console` is present and visible on the
+  post-login dashboard.
+- Confirmed marker for "session invalid/expired" (Playwright-based
+  client): current URL contains `login` after navigating to the
+  dashboard URL.
+- **Important correction (2026-08-23):** the lightweight HTTP client
+  (`lightweight_client.py`) does NOT use the dashboard-URL check above.
+  Testing with a completely empty cookie jar (no session at all) showed
+  the dashboard shell page still returns HTTP 200 with no redirect —
+  it's tab-shell chrome that renders regardless of auth state. That made
+  the URL-based check a false-positive trap for "no session yet"
+  specifically (as opposed to "invalid/expired session cookie", which it
+  does still detect correctly). The lightweight client now probes the
+  actual list API instead (`limit=1`) and checks the JSON shape:
+  `{"total":N,"rows":[...]}` = valid, `{"code":0,"url":"...login...",
+  "wait":N}` (FastAdmin's standard "please log in" AJAX response) =
+  invalid. This is both more accurate and simpler, since it checks the
+  literal endpoint the client depends on rather than a separate proxy
+  signal.
+- All of the above were exercised for real, including from a fully
+  cold/deleted session: `is_session_valid()` correctly returned `False`,
+  `authenticate()` completed with zero human input (headless, CAPTCHA
+  field auto-filled), and the very next poll cycle succeeded (6/6 records).
 
 ## Device Information data source
 
