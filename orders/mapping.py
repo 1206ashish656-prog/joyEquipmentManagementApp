@@ -13,9 +13,21 @@ from typing import Any
 
 from .selectors import FIELD_MAP
 
-# Confirmed live (see selectors.py docstring): the target's day-boundary
-# filter operates in China Standard Time, not UTC/IST/local time.
-TARGET_TZ = timezone(timedelta(hours=8), name="UTC+8 (target server)")
+# Confirmed live (see selectors.py docstring): the target's own
+# server-side RANGE filter buckets orders by China Standard Time day
+# boundaries, not UTC/IST/local time. Still needed by orders/client.py
+# to know how to query the target correctly — but it is NOT what
+# order_date below is computed in; see IST_TZ.
+TARGET_TZ = timezone(timedelta(hours=8), name="UTC+8 (target server's own RANGE-filter day boundary)")
+
+# Canonical timezone for order_date / "which day did this order happen
+# on" throughout this whole app (mapping, summary, backfill, realtime
+# worker, dashboard) — per explicit request (2026-08-24): report in
+# India Standard Time, not the target's own China Standard Time. IST is
+# UTC+5:30, 2.5 hours behind UTC+8, so an IST calendar day always spans
+# parts of TWO of the target's own UTC+8 calendar days — see
+# orders/client.py's fetch_day() for how that's reconciled when querying.
+IST_TZ = timezone(timedelta(hours=5, minutes=30), name="IST (India Standard Time)")
 
 
 def _get_nested(d: dict, dotted_path: str, default=None):
@@ -61,7 +73,7 @@ class OrderRecord:
     goods_name: str
     cup_num: int
     createtime: int  # raw unix timestamp, as returned by the target
-    order_date: str  # YYYY-MM-DD, computed in TARGET_TZ (UTC+8) — see selectors.py
+    order_date: str  # YYYY-MM-DD, computed in IST_TZ (India Standard Time)
     raw: dict = field(default_factory=dict)
 
 
@@ -72,7 +84,7 @@ def map_api_row_to_order(row: dict) -> OrderRecord:
 
     createtime = _to_int(mapped.get("createtime"))
     order_date = (
-        datetime.fromtimestamp(createtime, tz=timezone.utc).astimezone(TARGET_TZ).strftime("%Y-%m-%d")
+        datetime.fromtimestamp(createtime, tz=timezone.utc).astimezone(IST_TZ).strftime("%Y-%m-%d")
         if createtime
         else ""
     )

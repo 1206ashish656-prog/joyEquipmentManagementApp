@@ -191,6 +191,26 @@ appeared correctly after one `--once` run (215 raw → 172 qualifying
 orders), and the `--loop` process is running continuously since. 9 new
 tests; 205/205 passing overall.
 
+**Follow-up (same day): reporting timezone is now IST, not the target's
+UTC+8.** Per explicit request ("I want to see glasses sold today as per
+Indian timezone"). `orders/mapping.py`'s `IST_TZ` is now what
+`order_date` is computed in — the single source of truth for every day
+boundary in `orders/`. `TARGET_TZ` (UTC+8) didn't go away — it's still
+what the target's own RANGE filter uses, and since IST is 2.5h behind
+it, one IST day always straddles two of the target's UTC+8 days.
+`orders/client.py`'s `fetch_day()` now queries both and filters to the
+IST match (see README's "Reporting timezone: IST" section for the full
+mechanics). Full history was re-backfilled under IST (`--force`,
+2026-05-02 through 2026-08-23) so there's no UTC+8/IST seam in the
+stored data. Caught + fixed my own bug mid-backfill: the "unexpected
+order_date" sanity-check warning had the wrong expected-window (missed
+legitimate backward spillover) and fired constantly — cosmetic only
+(stored data was correct throughout), fixed with a regression test.
+Also cleaned up 2 stray rows left by the old UTC+8-based realtime worker
+(today's stale snapshot + a not-yet-real-in-IST future date). 18
+new/updated tests; 213/213 passing. Today's IST total: 152 orders across
+3 machines.
+
 ## Architecture (one paragraph)
 
 `monitoring/lightweight_client.py` (plain httpx) handles ALL steady-state

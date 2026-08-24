@@ -1,7 +1,11 @@
 """
-Unit tests for orders/mapping.py — field mapping and the UTC+8 day
-computation (the single most important thing to get right here: getting
-the timezone wrong silently misassigns orders to the wrong day).
+Unit tests for orders/mapping.py — field mapping and the IST (India
+Standard Time) day computation (the single most important thing to get
+right here: getting the timezone wrong silently misassigns orders to the
+wrong day). Per explicit request (2026-08-24), order_date is computed in
+IST, NOT the target's own UTC+8 (China Standard Time) day boundary —
+that UTC+8 fact is still real and still relied on by orders/client.py to
+query the target correctly, it's just no longer what gets reported.
 """
 from __future__ import annotations
 
@@ -16,7 +20,7 @@ def _raw_row(**overrides):
         "order_code": "2026082451100531",
         "device_id": 205,
         "order_money": "120.00",
-        "createtime": 1787505619,  # confirmed live: 2026-08-24 01:20:19 UTC+8
+        "createtime": 1787505619,  # confirmed live: 2026-08-24 01:20:19 UTC+8 = 2026-08-23 22:50:19 IST
         "pay_state_text": "Have paid",
         "delivery_state_text": "Success",
         "order_state_text": "Completed",
@@ -45,20 +49,35 @@ def test_maps_basic_fields():
     assert order.pay_type == "UPI"
 
 
-def test_order_date_uses_utc8_not_utc():
-    # 1787505619 is 2026-08-23 17:20:19 UTC, but 2026-08-24 01:20:19 in
-    # UTC+8 -- confirmed against the real target's own day-boundary
-    # behavior. A naive UTC (or local-machine-time) conversion would land
-    # this order in the wrong day.
+def test_order_date_uses_ist_not_utc():
+    # 1787505619 is 2026-08-23 17:20:19 UTC, which is 2026-08-23 22:50:19
+    # in IST -- a naive UTC (or local-machine-time) conversion assuming
+    # UTC+8 semantics would land this order on 2026-08-24 instead.
     order = map_api_row_to_order(_raw_row(createtime=1787505619))
-    assert order.order_date == "2026-08-24"
-
-
-def test_order_date_just_before_utc8_midnight():
-    # 1787500149 confirmed live as 2026-08-23 23:49:09 UTC+8 (the last
-    # order of that day in the real capture).
-    order = map_api_row_to_order(_raw_row(createtime=1787500149))
     assert order.order_date == "2026-08-23"
+
+
+def test_order_date_diverges_from_target_utc8_day():
+    # The exact same instant is 2026-08-24 01:20:19 in the TARGET's own
+    # UTC+8 day-boundary convention (confirmed live -- see
+    # orders/selectors.py), but 2026-08-23 in IST. This is the deliberate
+    # divergence orders/client.py's fetch_day() has to reconcile by
+    # querying two of the target's UTC+8 days per IST day.
+    order = map_api_row_to_order(_raw_row(createtime=1787505619))
+    assert order.order_date == "2026-08-23"  # NOT "2026-08-24" (that would be the UTC+8 answer)
+
+
+def test_order_date_just_before_ist_midnight():
+    # 1787509795 = 2026-08-23 23:59:55 IST exactly.
+    order = map_api_row_to_order(_raw_row(createtime=1787509795))
+    assert order.order_date == "2026-08-23"
+
+
+def test_order_date_just_after_ist_midnight():
+    # 1787509805 = 2026-08-24 00:00:05 IST exactly -- 10 seconds later
+    # than the previous test's timestamp, but the next calendar day.
+    order = map_api_row_to_order(_raw_row(createtime=1787509805))
+    assert order.order_date == "2026-08-24"
 
 
 def test_missing_device_name_defaults_to_nexus():

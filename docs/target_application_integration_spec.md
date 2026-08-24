@@ -182,8 +182,19 @@ requested, the earliest and latest returned order's `createtime`,
 converted to UTC+8, landed within minutes of that day's 00:00:00 and
 23:59:59 respectively — consistently, not coincidentally. Any other
 timezone assumption would have silently misassigned orders to the wrong
-calendar day. `orders/mapping.py`'s `TARGET_TZ` encodes this explicitly
-rather than relying on the querying machine's local timezone.
+calendar day. `orders/mapping.py`'s `TARGET_TZ` still encodes this fact
+about the target itself.
+
+**This app's own reporting timezone changed to IST on 2026-08-24**, per
+explicit request — `order_date` (what every downstream day-boundary,
+backfill date, and dashboard period is keyed on) is now computed in IST
+(`orders/mapping.py`'s `IST_TZ`), not the target's UTC+8. The UTC+8 fact
+above is still true and still load-bearing: since IST is 2.5 hours
+behind UTC+8, one IST calendar day always straddles two of the target's
+own UTC+8 days, so `orders/client.py`'s `fetch_day()` queries both and
+filters by each order's own IST-computed date rather than trusting the
+target's bucketing directly. The full order history (2026-05-02 onward)
+was re-backfilled under this IST logic the same day.
 
 Also present on each row (not currently used by the summary feature, but
 confirmed available): `cup_num`, `buyer_logon_id`/`buyer_open_id`/

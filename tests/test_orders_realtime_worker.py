@@ -1,6 +1,6 @@
 """
 Unit tests for orders/realtime_worker.py — the "keep today's order
-summary continuously up to date" loop. Covers: UTC+8 date computation,
+summary continuously up to date" loop. Covers: IST date computation,
 unconditional overwrite-on-refresh, fetch-failure handling, and the
 day-rollover "one final refresh of the day that just ended" logic
 (run_cycle), against an in-memory SQLite DB (same monkeypatch pattern as
@@ -20,7 +20,7 @@ import db.base as db_base
 from db.models import Base, OrderSummary, OrderSummaryRun, OrderSummaryRunStatus
 from monitoring.models import MonitoringError
 from orders.mapping import OrderRecord
-from orders.realtime_worker import refresh_date, run_cycle, today_utc8
+from orders.realtime_worker import refresh_date, run_cycle, today_ist
 
 
 @pytest.fixture()
@@ -62,20 +62,23 @@ def _order(device_app="NEXUS", order_money="120.00", orange_num=3, **kw) -> Orde
     )
 
 
-# --- today_utc8 ---
+# --- today_ist ---
 
-def test_today_utc8_uses_target_timezone_not_utc():
-    # 2026-08-24 00:30 UTC is already 2026-08-24 08:30 in UTC+8 -- same
-    # day here, but proves the conversion is actually applied (a naive
-    # UTC read would show the same date only by coincidence for this
-    # particular instant; the boundary tests below prove the real case).
-    now = datetime(2026, 8, 23, 17, 0, 0, tzinfo=timezone.utc)  # = 2026-08-24 01:00 UTC+8
-    assert today_utc8(now) == "2026-08-24"
+def test_today_ist_uses_ist_not_utc():
+    # 2026-08-23 20:00 UTC is already 2026-08-24 01:30 in IST -- a naive
+    # UTC read would still say 2026-08-23.
+    now = datetime(2026, 8, 23, 20, 0, 0, tzinfo=timezone.utc)  # = 2026-08-24 01:30 IST
+    assert today_ist(now) == "2026-08-24"
 
 
-def test_today_utc8_just_before_utc8_midnight():
-    now = datetime(2026, 8, 23, 15, 59, 0, tzinfo=timezone.utc)  # = 2026-08-23 23:59 UTC+8
-    assert today_utc8(now) == "2026-08-23"
+def test_today_ist_just_before_ist_midnight():
+    now = datetime(2026, 8, 23, 18, 25, 0, tzinfo=timezone.utc)  # = 2026-08-23 23:55 IST
+    assert today_ist(now) == "2026-08-23"
+
+
+def test_today_ist_just_after_ist_midnight():
+    now = datetime(2026, 8, 23, 18, 35, 0, tzinfo=timezone.utc)  # = 2026-08-24 00:05 IST
+    assert today_ist(now) == "2026-08-24"
 
 
 # --- refresh_date ---
@@ -171,7 +174,7 @@ async def test_run_cycle_same_date_twice_no_extra_refresh(db):
 
 @pytest.mark.asyncio
 async def test_run_cycle_date_rollover_refreshes_both_days(db):
-    """The requirement this exists for: when the UTC+8 date changes
+    """The requirement this exists for: when the IST date changes
     between cycles, the day that just ended gets ONE FINAL refresh
     (capturing whatever landed between the last tick and midnight)
     before the new day starts being tracked."""

@@ -164,3 +164,8 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 
 **26.**
 > why does today's order data not loaded? For same day, fetch the data realtime and keep updating the order summary database with the updated data.
+
+**26a.** `[choice]` Re-backfill all history (Recommended) *(answer to "Should I re-backfill the full history under IST boundaries, or apply IST going forward only?")*
+
+**27.**
+> The order data fetched is in Chinese time zone. Fetch orders data according to Indian time zone by applying appropriate offset. I want to see glasses sold today (as per Indian timezone)

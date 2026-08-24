@@ -1,5 +1,6 @@
 """
-Keeps TODAY's (UTC+8) order summary continuously up to date.
+Keeps TODAY's (IST — India Standard Time) order summary continuously up
+to date.
 
 Why this exists: orders/backfill.py deliberately only ever processes a
 date once it's fully elapsed — a day still accumulating orders would
@@ -11,8 +12,8 @@ Summary tab until tomorrow, when today finally counts as a complete past
 day and a manual/scheduled backfill run picks it up.
 
 This module is the deliberate exception to that rule: it always targets
-"today" (recomputed fresh every cycle, in the target's own UTC+8
-calendar — see orders/mapping.py's TARGET_TZ, NOT server-local time) and
+"today" (recomputed fresh every cycle, in IST — see orders/mapping.py's
+IST_TZ, NOT the target's own UTC+8 or server-local time) and
 unconditionally overwrites, whether or not that date already has a
 SUCCESS row from an earlier, now-stale, cycle. orders/store.py's
 save_day() is already idempotent (delete-then-reinsert), so repeated
@@ -35,7 +36,7 @@ from monitoring.config import load_settings
 from monitoring.models import MonitoringError
 
 from .client import OrdersClient
-from .mapping import TARGET_TZ
+from .mapping import IST_TZ
 from .store import save_day
 from .summary import compute_daily_groups
 
@@ -45,16 +46,16 @@ logger = logging.getLogger("orders.realtime_worker")
 DEFAULT_INTERVAL_SECONDS = 300  # 5 minutes — frequent enough to feel "live" on a dashboard refresh, not so frequent it hammers the target for a slowly-accumulating count.
 
 
-def today_utc8(now: datetime | None = None) -> str:
+def today_ist(now: datetime | None = None) -> str:
     """`now` is injectable (defaults to the real current instant) purely
     so tests can pin a specific moment rather than depending on when
     they happen to run."""
     now = now or datetime.now(timezone.utc)
-    return now.astimezone(TARGET_TZ).strftime("%Y-%m-%d")
+    return now.astimezone(IST_TZ).strftime("%Y-%m-%d")
 
 
 async def refresh_date(client: OrdersClient, date: str) -> bool:
-    """Fetch + recompute + save ONE date, unconditionally — no
+    """Fetch + recompute + save ONE IST date, unconditionally — no
     already-cached check, since the entire point is overwriting a
     snapshot that may already exist. Returns True on success, False on a
     fetch failure (logged, not raised — a transient failure this cycle
@@ -71,7 +72,7 @@ async def refresh_date(client: OrdersClient, date: str) -> bool:
 
     qualifying = sum(g.number_of_orders for g in groups)
     logger.info(
-        "%s: refreshed — %d raw orders fetched, %d qualifying, %d (machine,price,pay_type) groups",
+        "%s: refreshed — %d raw orders fetched (IST day), %d qualifying, %d (machine,price,pay_type) groups",
         date, len(records), qualifying, len(groups),
     )
     return True
@@ -83,13 +84,13 @@ async def run_once() -> None:
     db_base.create_all()
     client = OrdersClient(settings)
     try:
-        await refresh_date(client, today_utc8())
+        await refresh_date(client, today_ist())
     finally:
         await client.close()
 
 
-async def run_cycle(client: OrdersClient, last_seen_date: str | None, today_fn=today_utc8) -> str:
-    """One iteration's worth of work: refresh today, plus — if the UTC+8
+async def run_cycle(client: OrdersClient, last_seen_date: str | None, today_fn=today_ist) -> str:
+    """One iteration's worth of work: refresh today, plus — if the IST
     calendar date rolled over since the previous cycle — one final
     refresh of the day that just ended. Returns the date to pass back in
     as `last_seen_date` next time. Factored out of run_loop so the
@@ -101,7 +102,7 @@ async def run_cycle(client: OrdersClient, last_seen_date: str | None, today_fn=t
         # backfill.py sees it already has a SUCCESS row (from an earlier
         # cycle here) and skips it, so whatever orders landed between
         # the last tick and midnight would be silently missing forever.
-        logger.info("UTC+8 date rolled over (%s -> %s) — final refresh of %s", last_seen_date, current, last_seen_date)
+        logger.info("IST date rolled over (%s -> %s) — final refresh of %s", last_seen_date, current, last_seen_date)
         await refresh_date(client, last_seen_date)
 
     await refresh_date(client, current)
@@ -124,7 +125,7 @@ async def run_loop(interval_seconds: int) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Keep today's (UTC+8) order summary continuously up to date")
+    parser = argparse.ArgumentParser(description="Keep today's (IST) order summary continuously up to date")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--loop", action="store_true", help="Run forever, refreshing today every --interval seconds")
     mode.add_argument("--once", action="store_true", help="Refresh today once and exit")

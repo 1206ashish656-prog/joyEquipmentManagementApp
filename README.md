@@ -301,7 +301,7 @@ flexible period/breakdown queries the UI needs.
   **Not yet independently verified against the target app's own UI**, and
   **not yet backfilled beyond that one day** (32,049 total orders exist —
   see the integration spec) — both flagged as next steps.
-- A real, previously-undocumented detail this surfaced: the target's
+- A real, previously-undocumented detail this surfaced: the target's own
   `createtime` date-range filter uses **UTC+8 (China Standard Time) day
   boundaries**, not UTC/IST/local time — confirmed by checking three
   consecutive days' earliest/latest order timestamps. Getting this wrong
@@ -309,6 +309,38 @@ flexible period/breakdown queries the UI needs.
   `docs/target_application_integration_spec.md`.
 - **Full historical backfill completed** 2026-05-02 through 2026-08-23
   (114 days, zero failures) — see `CHANGELOG.md`'s 2.0.0 entry.
+- **This app's own reporting day boundary is now IST, not the target's
+  UTC+8** — see the next section. The UTC+8 finding above is still true
+  and still relied on internally, just no longer what gets reported.
+
+### Reporting timezone: IST, not the target's UTC+8
+
+Per explicit request (2026-08-24): every day boundary this app reports
+— `order_date` on each order, every stored `OrderSummary`/
+`OrderSummaryRun` date, every Order Summary period/breakdown, "today" for
+the realtime worker — is computed in **IST (India Standard Time,
+UTC+5:30)**, via `orders/mapping.py`'s `IST_TZ`. The target's own UTC+8
+convention (`TARGET_TZ`, same file) is unchanged and still real, but is
+now purely an implementation detail of how the target is queried, not
+what gets shown.
+
+Since IST is 2.5 hours behind UTC+8, **one IST calendar day always spans
+parts of two of the target's own UTC+8 days** — there's no way to ask
+the target's RANGE filter for "one IST day" directly. `orders/client.py`'s
+`fetch_day(ist_date_str)` handles this: it queries the target for BOTH
+of its UTC+8 days that could contain an IST-day order (`ist_date_str`
+and the day after), merges the results, then keeps only the orders whose
+own computed `order_date` (IST-based) actually equals `ist_date_str` —
+the target's bucketing is a coarse over-fetch, not the final word on
+which day an order belongs to.
+
+**The full order history was re-backfilled under IST boundaries the same
+day** (`python -m orders.backfill --start 2026-05-02 --end 2026-08-23
+--force`) so there's no seam in the data between "old UTC+8-bucketed
+days" and "new IST-bucketed days" — every stored day reflects the same
+convention. This roughly doubles the target-side requests per historical
+day (two UTC+8-day fetches instead of one), so a re-backfill like this
+takes noticeably longer than the original one.
 
 ### Today's order data (`orders/realtime_worker.py`)
 
@@ -321,8 +353,8 @@ which looks like a bug ("why is today's data missing?") but is the
 correct behavior for that script's caching model.
 
 `orders/realtime_worker.py` is the deliberate exception — it always
-targets "today" (recomputed every cycle, in the target's own UTC+8
-calendar, not server-local time) and **unconditionally overwrites**,
+targets "today" (recomputed every cycle, in **IST**, not the target's
+own UTC+8 or server-local time) and **unconditionally overwrites**,
 whether or not that date already has a `SUCCESS` row from an earlier
 cycle:
 
@@ -336,7 +368,7 @@ Run this as a fourth long-lived background process alongside the
 equipment worker and the dashboard (see "How to just run it" below) —
 it's intentionally a separate script from `monitoring/worker.py`, same
 architectural split as the rest of `orders/` from `monitoring/`/
-`services/`. When the UTC+8 date rolls over mid-loop, the day that just
+`services/`. When the IST date rolls over mid-loop, the day that just
 ended gets **one final refresh** before the new day starts being
 tracked, so orders placed between the last tick and midnight aren't
 silently lost (`orders/realtime_worker.py`'s `run_cycle()`). Live-verified
@@ -512,14 +544,18 @@ backend/                      Phase 5 dashboard (FastAPI + Jinja2)
 orders/                        Order-summary feature (independent of
                              equipment monitoring — see its own README section)
   selectors.py                  confirmed order-list API + the UTC+8 finding
-  mapping.py                    raw row -> OrderRecord (incl. UTC+8 date calc)
-  client.py                     httpx fetch for one UTC+8 day, paginated
+  mapping.py                    raw row -> OrderRecord (order_date computed in IST_TZ)
+  client.py                     httpx fetch for one IST day (queries 2 of the
+                             target's UTC+8 days, filters to the IST match), paginated
   summary.py                    filter + (machine, price, pay_type) grouping
   store.py                       DB persistence (OrderSummary/OrderSummaryRun);
                              "already processed" detection, idempotent re-save
   rollup.py                      query-time aggregation into any requested view
                              (used by both the CLI printout and the UI)
-  backfill.py                   CLI: sequential day-by-day, skips processed dates
+  backfill.py                   CLI: sequential day-by-day (IST), skips processed dates
+  realtime_worker.py            keeps TODAY (IST) continuously up to date -- the
+                             deliberate exception to backfill.py's "only ever
+                             process a fully-elapsed day" rule
 
 tests/
   conftest.py                  shared fixtures (in-memory SQLite + record factory)
@@ -533,7 +569,8 @@ tests/
                              pagination, error classification — httpx.MockTransport,
                              no real network
   test_backend.py              FastAPI TestClient: auth, RBAC, all pages, subscription CRUD
-  test_orders_mapping.py       field mapping + the UTC+8 day-boundary calculation
+  test_orders_mapping.py       field mapping + the IST day-boundary calculation
+  test_orders_client.py         fetch_day's two-target-day IST reconciliation
   test_orders_summary.py       filter + (machine,price,pay_type) grouping, incl. the
                              mid-day-price-change requirement, hand-computed values
   test_orders_rollup.py        aggregation math (weighted averages across combined groups)

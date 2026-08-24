@@ -266,7 +266,7 @@ class OrderSummaryRun(Base):
     __tablename__ = "order_summary_run"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    date: Mapped[str] = mapped_column(String(10), unique=True, index=True)  # 'YYYY-MM-DD', target's UTC+8 calendar day
+    date: Mapped[str] = mapped_column(String(10), unique=True, index=True)  # 'YYYY-MM-DD', IST calendar day (orders/mapping.py's IST_TZ)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[OrderSummaryRunStatus] = mapped_column(_order_summary_run_status_type)
@@ -282,7 +282,7 @@ class OrderSummary(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    date: Mapped[str] = mapped_column(String(10), index=True)  # 'YYYY-MM-DD', target's UTC+8 calendar day
+    date: Mapped[str] = mapped_column(String(10), index=True)  # 'YYYY-MM-DD', IST calendar day (orders/mapping.py's IST_TZ)
     device_app: Mapped[str] = mapped_column(String(128), index=True)  # equipment name, e.g. "NEXUS"
     price: Mapped[Decimal] = mapped_column(Numeric(10, 2))  # exact order price for this group
     pay_type: Mapped[str] = mapped_column(String(32))  # e.g. "UPI"

@@ -69,6 +69,39 @@ orders placed in the last few minutes before midnight aren't lost.
 confirmed missing, then appeared (215 raw → 172 qualifying orders, 3
 groups) within seconds of running `--once`; `--loop` left running.
 
+**Follow-up (same day): reporting timezone switched from the target's
+UTC+8 to IST.** Per explicit request — "I want to see glasses sold today
+(as per Indian timezone)". `order_date` (the single source of truth for
+every day boundary in the whole `orders/` pipeline) is now computed in
+IST (`orders/mapping.py`'s `IST_TZ`), not the target's own UTC+8
+(`TARGET_TZ`, which is unchanged and still needed internally). Since IST
+is 2.5 hours behind UTC+8, one IST day always straddles two of the
+target's own UTC+8 days — `orders/client.py`'s `fetch_day()` now queries
+both and filters to the IST match, rather than trusting the target's own
+bucketing directly. `orders/realtime_worker.py`'s `today_utc8()` became
+`today_ist()`.
+
+**Full history re-backfilled** under IST boundaries the same day
+(`--force`, 2026-05-02 through 2026-08-23) so there's no seam between
+old UTC+8-bucketed and new IST-bucketed data — every stored day uses the
+same convention. Caught and fixed a bug of my own along the way: the
+"unexpected order_date" sanity-check warning in `fetch_day()` had the
+wrong expected-date window (only looked forward a day, not also
+backward) and fired on every single legitimate cross-day spillover —
+cosmetic only, the actual returned/stored data was correct throughout,
+but fixed and covered by a regression test
+(`test_fetch_day_legitimate_spillover_does_not_warn`) before trusting
+the logs again. Also cleaned up two stray `OrderSummary`/
+`OrderSummaryRun` rows for "today" and a not-yet-existing-in-IST future
+date, left over from the old UTC+8-based realtime worker's last cycle
+before being replaced.
+
+18 new/updated tests (IST day-boundary computation with an injectable
+`now`, `orders/client.py`'s two-target-day fetch-and-filter logic via
+`httpx.MockTransport`, the spillover-warning regression). 213/213
+passing overall. Live-verified: today's IST total is 152 orders (3
+machines) after the fix and re-backfill.
+
 ## [2.0.0] — 2026-08-24
 
 Everything built on top of the original equipment-monitoring app (1.0.0):
