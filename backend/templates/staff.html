@@ -43,7 +43,7 @@
 <section>
   <h2>Staff Roster</h2>
   <table class="equipment-table">
-    <thead><tr><th>Name</th><th>Department</th><th>Sub-department</th><th>Employment Start</th><th>Employment End</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Department</th><th>Sub-department</th><th>Employment Start</th><th>Employment End</th><th></th><th></th></tr></thead>
     <tbody>
       {% for s in staff_list %}
       <tr>
@@ -52,6 +52,7 @@
         <td>{{ s.sub_department or "—" }}</td>
         <td>{{ s.employment_start_date }}</td>
         <td>{{ s.employment_end_date or "— active —" }}</td>
+        <td><a href="/staff/{{ s.id }}/edit">Edit</a></td>
         <td>
           {% if not s.employment_end_date %}
           <form method="post" action="/staff/{{ s.id }}/offboard" class="checkbox-label" style="gap:6px;">
@@ -62,7 +63,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="6">No staff added yet.</td></tr>
+      <tr><td colspan="7">No staff added yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

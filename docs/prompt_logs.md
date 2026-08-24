@@ -169,3 +169,6 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 
 **27.**
 > The order data fetched is in Chinese time zone. Fetch orders data according to Indian time zone by applying appropriate offset. I want to see glasses sold today (as per Indian timezone)
+
+**28.**
+> In staff and leaves management endpoint, enable edit data in staff roster. Suppose I mistakenly marked an employee as left; now I want to reset the employee status to previous state using edit functionality. Also, show mark as left option once edited and employment remains active

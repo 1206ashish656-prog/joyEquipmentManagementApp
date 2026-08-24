@@ -102,6 +102,21 @@ before being replaced.
 passing overall. Live-verified: today's IST total is 152 orders (3
 machines) after the fix and re-backfill.
 
+**Follow-up (same day): edit staff roster entries.** Per explicit
+request — "Suppose I mistakenly marked an employee as left; now I want
+to reset the employee status to previous state using edit functionality.
+Also, show mark as left option once edited and employment remains
+active." Every roster row now has an Edit link (`/staff/{id}/edit`,
+`backend/templates/staff_edit.html`) that can change any field —
+clearing the employment end date is exactly how a mistaken "Mark as
+left" gets undone, and the roster's existing `not
+employment_end_date` check is what naturally brings "Mark as left" back
+into view once they're active again (no new conditional needed). 7 new
+tests. 220/220 passing overall. Live-verified against the demo DB's own
+Priya Sharma, who happened to already be marked left (2026-08-24) —
+edited her end date blank, confirmed she shows active with "Mark as
+left" restored on the roster.
+
 ## [2.0.0] — 2026-08-24
 
 Everything built on top of the original equipment-monitoring app (1.0.0):

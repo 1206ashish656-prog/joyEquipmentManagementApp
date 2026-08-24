@@ -104,6 +104,57 @@ def offboard_staff(
     return RedirectResponse(url="/staff", status_code=303)
 
 
+@router.get("/staff/{staff_id}/edit", response_class=HTMLResponse)
+def edit_staff_form(
+    staff_id: int,
+    request: Request,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    staff = db.get(Staff, staff_id)
+    if staff is None:
+        return templates.TemplateResponse(request, "not_found.html", {"user": admin}, status_code=404)
+
+    all_staff = db.execute(select(Staff)).scalars().all()
+    return templates.TemplateResponse(
+        request,
+        "staff_edit.html",
+        {
+            "user": admin,
+            "staff": staff,
+            "known_departments": sorted({s.department for s in all_staff if s.department}),
+            "known_sub_departments": sorted({s.sub_department for s in all_staff if s.sub_department}),
+        },
+    )
+
+
+@router.post("/staff/{staff_id}/edit")
+def update_staff(
+    staff_id: int,
+    name: str = Form(...),
+    department: str = Form(""),
+    sub_department: str = Form(""),
+    employment_start_date: str = Form(...),
+    employment_end_date: str = Form(""),
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    staff = db.get(Staff, staff_id)
+    if staff is None:
+        return RedirectResponse(url="/staff", status_code=303)
+
+    staff.name = name.strip()
+    staff.department = department.strip() or None
+    staff.sub_department = sub_department.strip() or None
+    staff.employment_start_date = employment_start_date
+    # Blank end date on edit is exactly how a mistaken "mark as left" gets
+    # undone -- clearing it here makes the staff member active again, and
+    # the roster's existing "not s.employment_end_date" check is what
+    # brings the "Mark as left" action back into view for them.
+    staff.employment_end_date = employment_end_date.strip() or None
+    return RedirectResponse(url="/staff", status_code=303)
+
+
 @router.post("/staff/leaves")
 def add_leave(
     staff_id: int = Form(...),

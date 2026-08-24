@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Edit Staff — Equipment Monitor{% endblock %}
+{% block content %}
+<h1>Edit Staff</h1>
+
+<section class="status-panel">
+  <form method="post" action="/staff/{{ staff.id }}/edit" class="stacked-form" style="margin: 0;">
+    <label>Name<input type="text" name="name" value="{{ staff.name }}" required></label>
+    <label>Department
+      <input type="text" name="department" value="{{ staff.department or '' }}" list="department-options">
+    </label>
+    <label>Sub-department
+      <input type="text" name="sub_department" value="{{ staff.sub_department or '' }}" list="sub-department-options">
+    </label>
+    <datalist id="department-options">
+      {% for d in known_departments %}<option value="{{ d }}">{% endfor %}
+    </datalist>
+    <datalist id="sub-department-options">
+      {% for d in known_sub_departments %}<option value="{{ d }}">{% endfor %}
+    </datalist>
+    <label>Employment start date<input type="date" name="employment_start_date" value="{{ staff.employment_start_date }}" required></label>
+    <label>Employment end date <span style="font-weight:400;color:var(--muted);">(clear this and save to mark them active again)</span>
+      <input type="date" name="employment_end_date" value="{{ staff.employment_end_date or '' }}">
+    </label>
+    <button type="submit">Save Changes</button>
+  </form>
+  {% if staff.employment_end_date %}
+  <p class="callout">Currently marked as <strong>left</strong> ({{ staff.employment_end_date }}). Clear the employment end date above and save to reset them to active — the "Mark as left" option will reappear on the roster once they're active again.</p>
+  {% endif %}
+  <p style="margin-top:14px;"><a href="/staff">← Back to Staff & Leave Management</a></p>
+</section>
+{% endblock %}

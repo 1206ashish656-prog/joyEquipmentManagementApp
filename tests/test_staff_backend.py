@@ -197,3 +197,124 @@ def test_department_and_sub_department_shown_in_roster(client):
     assert resp.status_code == 200
     assert "Operations" in resp.text
     assert "Logistics" in resp.text
+
+
+# --- Edit staff (incl. undoing a mistaken "mark as left") ---
+
+def test_edit_form_prefilled(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya", start="2026-01-15")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get(f"/staff/{staff_id}/edit")
+    assert resp.status_code == 200
+    assert 'value="Priya"' in resp.text
+    assert 'value="2026-01-15"' in resp.text
+
+
+def test_edit_updates_name_and_department(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.post(
+        f"/staff/{staff_id}/edit",
+        data={
+            "name": "Priya Sharma", "department": "Operations", "sub_department": "Logistics",
+            "employment_start_date": "2026-01-01",
+        },
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    with SessionLocal() as session:
+        staff = session.get(Staff, staff_id)
+        assert staff.name == "Priya Sharma"
+        assert staff.department == "Operations"
+        assert staff.sub_department == "Logistics"
+
+
+def test_edit_clears_employment_end_date_reactivating_staff(client):
+    """The core requirement: an employee mistakenly marked as left can
+    be reset to active by clearing the end date via edit."""
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya", end="2026-08-20")
+    _login(test_client, "admin@example.com")
+
+    test_client.post(
+        f"/staff/{staff_id}/edit",
+        data={"name": "Priya", "employment_start_date": "2026-01-01", "employment_end_date": ""},
+    )
+    with SessionLocal() as session:
+        staff = session.get(Staff, staff_id)
+        assert staff.employment_end_date is None
+
+
+def test_reactivated_staff_shows_mark_as_left_again(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya", end="2026-08-20")
+    _login(test_client, "admin@example.com")
+
+    # Before edit: marked as left, so the (only) staff member has no
+    # "Mark as left" action showing -- they're already left.
+    before = test_client.get("/staff").text
+    assert "Mark as left" not in before
+
+    test_client.post(
+        f"/staff/{staff_id}/edit",
+        data={"name": "Priya", "employment_start_date": "2026-01-01", "employment_end_date": ""},
+    )
+
+    after = test_client.get("/staff")
+    assert after.status_code == 200
+    assert "Mark as left" in after.text
+    assert "— active —" in after.text
+
+
+def test_edit_can_also_set_employment_end_date_directly(client):
+    """Edit isn't only for undoing offboarding -- it can set/correct the
+    end date directly too, not just clear it."""
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    _login(test_client, "admin@example.com")
+
+    test_client.post(
+        f"/staff/{staff_id}/edit",
+        data={"name": "Priya", "employment_start_date": "2026-01-01", "employment_end_date": "2026-08-15"},
+    )
+    with SessionLocal() as session:
+        staff = session.get(Staff, staff_id)
+        assert staff.employment_end_date == "2026-08-15"
+
+
+def test_edit_nonexistent_staff_redirects_without_error(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.post(
+        "/staff/999999/edit",
+        data={"name": "Nobody", "employment_start_date": "2026-01-01"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+
+def test_operations_cannot_edit_staff(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "ops@example.com", "operations")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    _login(test_client, "ops@example.com")
+
+    assert test_client.get(f"/staff/{staff_id}/edit").status_code == 403
+    resp = test_client.post(
+        f"/staff/{staff_id}/edit",
+        data={"name": "Hacked", "employment_start_date": "2026-01-01"},
+    )
+    assert resp.status_code == 403
+    with SessionLocal() as session:
+        assert session.get(Staff, staff_id).name == "Priya"  # unchanged

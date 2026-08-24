@@ -466,6 +466,12 @@ spans a month boundary to the month being viewed** (so it's correctly
 split between two months' totals, not double-counted or misattributed),
 and highlights anyone with more than 2 days that month in the UI.
 
+Every roster row has an **Edit** link (`/staff/{id}/edit`) that can
+change any field, including clearing the employment end date to undo a
+mistaken "Mark as left" — a cleared end date makes the staff member
+active again, and the "Mark as left" action reappears for them on the
+roster (same `not employment_end_date` check that already drove it).
+
 ## Architecture (current pieces)
 
 ```
