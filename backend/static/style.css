@@ -223,7 +223,10 @@ table.equipment-table tr:hover td { background: var(--brand-tint); }
 }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 
-form.stacked-form { display: flex; flex-direction: column; gap: 14px; max-width: 360px; margin: 0 auto; text-align: left; }
+/* Left-aligned by default (most uses sit inside a normal-width page
+   section, e.g. "Add User"/"Add Recipient"). Centering only happens
+   on the login page, and that's .login-box's own margin, not this. */
+form.stacked-form { display: flex; flex-direction: column; gap: 14px; max-width: 360px; margin: 0; text-align: left; }
 form.stacked-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; color: var(--muted); font-weight: 500; }
 form.stacked-form input, form.stacked-form select {
   padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; font: inherit;

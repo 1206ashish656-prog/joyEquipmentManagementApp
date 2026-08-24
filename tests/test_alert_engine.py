@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from db.models import AlertSubscription, User
+from db.models import AlertRecipient, AlertSubscription, User
 from monitoring.config import load_settings
 from services.alert_engine import AlertEngine
 from services.health_engine import HealthEngine
@@ -218,6 +218,64 @@ def test_incident_marked_notification_sent_on_open(db_session):
     assert result.incident_opened.notification_sent is False
     alert_engine.notify(db_session, result)
     assert result.incident_opened.notification_sent is True
+
+
+# --- AlertRecipient: flat email list, no dashboard account needed ---
+
+def test_flat_recipient_notified_on_critical(db_session):
+    db_session.add(AlertRecipient(email="ops-external@example.com", active=True))
+    db_session.flush()
+    fake = FakeNotificationService()
+    alert_engine = _engine(fake)
+    sm = StateManager(HealthEngine())
+
+    result = sm.process_observation(db_session, make_record(fault_type="Motor Fault"))
+    alert_engine.notify(db_session, result)
+
+    assert fake.sent[0]["to"] == ["ops-external@example.com"]
+
+
+def test_inactive_flat_recipient_not_notified(db_session):
+    db_session.add(AlertRecipient(email="left-the-company@example.com", active=False))
+    db_session.flush()
+    fake = FakeNotificationService()
+    alert_engine = _engine(fake)
+    sm = StateManager(HealthEngine())
+
+    result = sm.process_observation(db_session, make_record(fault_type="Motor Fault"))
+    alert_engine.notify(db_session, result)
+
+    assert fake.sent == []
+
+
+def test_flat_recipient_not_notified_for_warning_only(db_session):
+    """Same rule as admins: the flat list is for Critical (malfunction/
+    offline) alerts, not every severity."""
+    db_session.add(AlertRecipient(email="ops-external@example.com", active=True))
+    db_session.flush()
+    fake = FakeNotificationService()
+    alert_engine = _engine(fake)
+    sm = StateManager(HealthEngine())
+
+    result = sm.process_observation(db_session, make_record(material_shortage_status="Low"))
+    alert_engine.notify(db_session, result)
+
+    assert fake.sent == []
+
+
+def test_flat_recipient_and_admin_both_notified_deduplicated(db_session):
+    _add_user(db_session, "admin@example.com", role="admin")
+    db_session.add(AlertRecipient(email="ops-external@example.com", active=True))
+    db_session.flush()
+    fake = FakeNotificationService()
+    alert_engine = _engine(fake)
+    sm = StateManager(HealthEngine())
+
+    result = sm.process_observation(db_session, make_record(fault_type="Motor Fault"))
+    alert_engine.notify(db_session, result)
+
+    assert len(fake.sent) == 1
+    assert fake.sent[0]["to"] == ["admin@example.com", "ops-external@example.com"]
 
 
 def test_no_recipients_does_not_crash(db_session):

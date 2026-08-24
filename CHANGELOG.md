@@ -117,6 +117,45 @@ Priya Sharma, who happened to already be marked left (2026-08-24) —
 edited her end date blank, confirmed she shows active with "Mark as
 left" restored on the roster.
 
+**Follow-up (same day): "build the email alerting system."** Turned out
+this already existed and was already running — `services/alert_engine.py`
++ `services/notification_service.py`, wired into `monitoring/worker.py`
+since Phase 4, detecting a MALFUNCTION/OFFLINE transition exactly once
+and composing a message with the machine's name/ID/code/health/fault
+text/severity/detected time. Verified this with real evidence rather
+than taking it on faith: found 8 real `FaultIncident` rows already in
+the demo DB, 3 with `notification_sent=True` from real incidents.
+
+What was actually missing, clarified by asking rather than guessing: a
+**flat, admin-managed recipient list** not tied to a dashboard account
+(the existing model requires either the `admin` role or a per-user
+`/subscriptions` row). Added `AlertRecipient` (`db/models.py`) and
+`/alert-recipients` (admin-only CRUD — add/deactivate/reactivate an
+email, optional reference name). `AlertEngine.get_recipients()` now
+unions in every active `AlertRecipient` whenever severity is Critical —
+same trigger as the admin-always rule, additive to it, not a
+replacement.
+
+Found and fixed a **pre-existing UI bug** while building the recipients
+page: `form.stacked-form`'s CSS centered every such form, not just the
+login page it was meant for — every "Add X" form on Cost Management,
+Staff & Leave, and now Alert Recipients rendered indented/centered
+instead of left-aligned. Fixed at the CSS root (`.login-box` already
+handles login's own centering independently) instead of patching yet
+another template with an inline override.
+
+18 new tests (recipient resolution incl. Critical-only/inactive/dedup-
+with-admins, `/alert-recipients` CRUD + RBAC). 233/233 passing overall.
+Live-verified end-to-end against the real demo DB: simulated a fresh
+MALFUNCTION through the exact code path `monitoring/worker.py` uses,
+watched the composed message list all three real recipients (the admin
++ two `AlertRecipient` emails, one of which — `support@refresha.in` —
+was added by the user directly while this was being built), then
+cleaned up the synthetic equipment/incident afterward. **The one
+remaining real gap, unchanged from Phase 4**: no SMTP credentials are
+configured, so every alert still only reaches the console log, not a
+real inbox.
+
 ## [2.0.0] — 2026-08-24
 
 Everything built on top of the original equipment-monitoring app (1.0.0):

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Alert Recipients — Equipment Monitor{% endblock %}
+{% block content %}
+<h1>Alert Recipients</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<p class="callout">Everyone on this list gets an email as soon as a machine goes into <strong>Malfunction</strong> or <strong>Offline</strong> (Critical severity) — the same trigger admins already get automatically. No dashboard login needed; this is for people who should be alerted but never sign into this app.</p>
+
+<table class="equipment-table">
+  <thead><tr><th>Email</th><th>Name</th><th>Active</th><th></th></tr></thead>
+  <tbody>
+    {% for r in recipients %}
+    <tr>
+      <td>{{ r.email }}</td>
+      <td>{{ r.name or "—" }}</td>
+      <td>{{ "Yes" if r.active else "No" }}</td>
+      <td>
+        {% if r.active %}
+        <form method="post" action="/alert-recipients/{{ r.id }}/deactivate"><button type="submit" class="linklike">Deactivate</button></form>
+        {% else %}
+        <form method="post" action="/alert-recipients/{{ r.id }}/activate"><button type="submit" class="linklike">Activate</button></form>
+        {% endif %}
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4">No alert recipients added yet — only admins get notified until you add one.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Add Recipient</h2>
+<form method="post" action="/alert-recipients" class="stacked-form" style="margin: 0;">
+  <label>Email<input type="email" name="email" required></label>
+  <label>Name <span style="font-weight:400;color:var(--muted);">(optional, for your own reference)</span><input type="text" name="name"></label>
+  <button type="submit">Add Recipient</button>
+</form>
+{% endblock %}

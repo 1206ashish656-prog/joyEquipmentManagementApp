@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend.api import alerts, auth, costs, equipment, monitoring, orders, staff, users
+from backend.api import alert_recipients, alerts, auth, costs, equipment, monitoring, orders, staff, users
 from backend.deps import NotAuthenticated
 from db import base as db_base
 from monitoring.config import load_settings
@@ -51,3 +51,4 @@ app.include_router(monitoring.router)
 app.include_router(orders.router)
 app.include_router(costs.router)
 app.include_router(staff.router)
+app.include_router(alert_recipients.router)

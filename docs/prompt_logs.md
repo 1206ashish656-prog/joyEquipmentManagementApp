@@ -172,3 +172,14 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 
 **28.**
 > In staff and leaves management endpoint, enable edit data in staff roster. Suppose I mistakenly marked an employee as left; now I want to reset the employee status to previous state using edit functionality. Also, show mark as left option once edited and employment remains active
+
+**29.**
+> list down the credentials for all roles defined
+
+**30.**
+> fetch today's order data and show api call logs
+
+**31.**
+> Now, let's build the email alerting system. The expectation is as soon as malfunction observed, the email notification should be sent to provided receipients (configurable). The notification should specify the machine in which malfunction occured and it's details
+
+**31a.** `[choice]` Add a flat recipient list *(answer to "Is the existing admin-always + /subscriptions model what you meant, or a simpler flat list of recipient emails not tied to dashboard logins?")*

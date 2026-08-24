@@ -7,11 +7,14 @@ Detection/dedup correctness lives there — this module must never re-derive
 Recipients (project requirement #19):
   - Global administrators (User.role == "admin", active) always receive
     Critical-severity alerts, regardless of any subscription row.
+  - Active AlertRecipient rows (plain emails, no dashboard account
+    needed — admin-managed at /alert-recipients) ALSO always receive
+    Critical-severity alerts, same trigger as admins.
   - Everyone else is reached only via an enabled AlertSubscription row
     matching this equipment (or a NULL equipment_id = "all machines") and
     this severity (or a NULL severity = "all severities").
 Recipients are de-duplicated by email before sending (one email per
-person even if multiple subscriptions match).
+person even if multiple subscriptions/rules match).
 """
 from __future__ import annotations
 
@@ -21,7 +24,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from db.models import AlertSubscription, Equipment, FaultIncident, User
+from db.models import AlertRecipient, AlertSubscription, Equipment, FaultIncident, User
 from monitoring.config import Settings
 from services.notification_service import NotificationService
 from services.state_manager import ObservationResult
@@ -85,6 +88,11 @@ class AlertEngine:
         ).scalars().all()
         if severity == "Critical":
             emails.update(a.email for a in admins)
+
+            flat_recipients = session.execute(
+                select(AlertRecipient).where(AlertRecipient.active.is_(True))
+            ).scalars().all()
+            emails.update(r.email for r in flat_recipients)
 
         subs = session.execute(
             select(AlertSubscription, User)

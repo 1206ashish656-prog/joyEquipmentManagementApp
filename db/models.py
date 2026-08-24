@@ -211,6 +211,23 @@ class AlertSubscription(Base):
     user: Mapped["User"] = relationship(back_populates="subscriptions")
 
 
+class AlertRecipient(Base):
+    """A plain email address that gets every Critical-severity alert
+    (malfunction/offline — same trigger as the admin-always rule in
+    services/alert_engine.py), independent of any dashboard User account.
+    For people who need malfunction alerts but should never need to log
+    into this app — the admin-editable counterpart to AlertSubscription,
+    which requires a real User row. Admin-managed at /alert-recipients."""
+
+    __tablename__ = "alert_recipient"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)  # admin's own reference label, optional
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class MonitoringRunStatus(str, enum.Enum):
     RUNNING = "RUNNING"
     SUCCESS = "SUCCESS"

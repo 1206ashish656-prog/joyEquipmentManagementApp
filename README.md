@@ -20,7 +20,7 @@ ones there rather than starting a second log.
 | 1 — Target application discovery | **Done** — confirmed live against the real site on 2026-08-23. See [`docs/target_application_integration_spec.md`](docs/target_application_integration_spec.md). |
 | 2 — Monitoring proof of concept | **Done** — [TC-001](tests/tc_001_target_connection/description.md) passes end to end: session reuse (no re-login on repeat runs), real equipment extraction via the target's own JSON API, 6/6 records normalized. |
 | 3 — Database + state engine | **Implemented and live-verified** against the real target site (continuous `--loop` polling, real incidents opened/resolved) — but only against **SQLite**, not Postgres (see "Known gap" below). |
-| 4 — Alerting | **Implemented, partially verified.** `NotificationService` (pluggable channel; console fallback when SMTP isn't configured) + `AlertEngine` (recipient resolution, message composition), wired into `monitoring/worker.py` and confirmed firing on real incidents during live runs. SMTP send path is unit-tested with `smtplib` mocked — **no real email has actually been sent** (no SMTP credentials available here). |
+| 4 — Alerting | **Implemented, partially verified.** `NotificationService` (pluggable channel; console fallback when SMTP isn't configured) + `AlertEngine` (recipient resolution, message composition), wired into `monitoring/worker.py` and confirmed firing on real incidents during live runs (as recently as 2026-08-24: simulated a fresh MALFUNCTION end-to-end and watched the exact recipient list + message get composed). Recipients now include an admin-editable flat email list (`/alert-recipients`, no dashboard account needed) alongside admins-always and per-user subscriptions — see "Alert Recipients" below. SMTP send path is unit-tested with `smtplib` mocked — **no real email has actually been sent** (no SMTP credentials configured here yet). |
 | 5 — Web dashboard | **Implemented and live-verified** — a real `uvicorn` process, hit with real HTTP requests, serving live poll data with 5s auto-refresh (see "No persistent browser" for the DB caveat). |
 | 6 — Production hardening | Not started |
 
@@ -472,6 +472,30 @@ mistaken "Mark as left" — a cleared end date makes the staff member
 active again, and the "Mark as left" action reappears for them on the
 roster (same `not employment_end_date` check that already drove it).
 
+## Alert Recipients (admin-only, `/alert-recipients`)
+
+The email alerting system itself (`services/alert_engine.py` +
+`services/notification_service.py`, wired into `monitoring/worker.py`)
+already existed from Phase 4 — StateManager detects a machine entering
+MALFUNCTION/OFFLINE exactly once (never once per poll), AlertEngine
+composes a message with the equipment's name/ID/code/health/fault
+text/severity/detected time, and NotificationService delivers it (real
+SMTP if configured, a console log otherwise). What's new (2026-08-24) is
+**a second recipient source**: `AlertRecipient`, a plain admin-managed
+email list that doesn't require a dashboard `User` account — for people
+who need malfunction alerts but should never need to log into this app.
+It's additive, not a replacement: admins-always and per-user
+`/subscriptions` still work exactly as before; `AlertEngine.get_recipients()`
+now unions in every active `AlertRecipient` email whenever severity is
+Critical (same trigger as the admin-always rule), de-duplicated with
+everyone else before sending.
+
+**The one real remaining gap**: no SMTP credentials are configured here
+(`SMTP_HOST` is empty in `.env`), so every alert — real incidents
+included — has only ever gone through the console-fallback channel
+(logged, not actually delivered to an inbox). Provide real SMTP
+credentials in `.env` to turn this on; nothing else needs to change.
+
 ## Architecture (current pieces)
 
 ```
@@ -528,9 +552,10 @@ services/
                              incident until recovery (§8/§9)
   notification_service.py     pluggable delivery channel (email now;
                              console fallback when SMTP isn't configured)
-  alert_engine.py             who gets notified (admins + subscriptions,
-                             §19) and what the message says (§18) for the
-                             incident events StateManager already found
+  alert_engine.py             who gets notified (admins + AlertRecipient
+                             flat list + subscriptions, §19) and what the
+                             message says (§18) for the incident events
+                             StateManager already found
 
 backend/                      Phase 5 dashboard (FastAPI + Jinja2)
   main.py                     app wiring, startup DB init, auth redirect handler
@@ -569,8 +594,9 @@ tests/
   test_state_manager.py        incident dedup/escalation/resolution — reproduces
                              the spec's own "one alert, not four" worked example
   test_notification_service.py SMTP interaction mocked; credentials-never-logged check
-  test_alert_engine.py         recipient-resolution matrix (admin/subscription/
-                             severity/equipment-scoping/dedup)
+  test_alert_engine.py         recipient-resolution matrix (admin/AlertRecipient/
+                             subscription/severity/equipment-scoping/dedup)
+  test_alert_recipients_backend.py  /alert-recipients CRUD + RBAC
   test_lightweight_client.py   cookie loading, redirect-to-login detection,
                              pagination, error classification — httpx.MockTransport,
                              no real network

@@ -211,6 +211,29 @@ Also cleaned up 2 stray rows left by the old UTC+8-based realtime worker
 new/updated tests; 213/213 passing. Today's IST total: 152 orders across
 3 machines.
 
+**New: staff roster editing** (`/staff/{id}/edit`) — undoes a mistaken
+"Mark as left" by clearing the employment end date; reuses the roster's
+existing `not employment_end_date` check so "Mark as left" reappears
+automatically, no new conditional. 7 tests; 220/220 passing.
+
+**"Build the email alerting system" turned out to already exist** —
+Phase 4's `AlertEngine`/`NotificationService`/`StateManager` have been
+wired into `monitoring/worker.py` and firing on real incidents this
+whole time (verified: 8 real `FaultIncident` rows in the demo DB, 3 with
+`notification_sent=True`). Confirmed with the user what was actually
+new: a **flat, admin-managed recipient list** not tied to a dashboard
+account (`AlertRecipient` + `/alert-recipients`), additive to the
+existing admins-always + `/subscriptions` model.
+`AlertEngine.get_recipients()` unions in active `AlertRecipient` emails
+for Critical severity. Found + fixed a pre-existing CSS bug along the
+way: `form.stacked-form` was centering every such form (not just
+login's), fixed at the root instead of patching another template. 18
+new tests; 233/233 passing. Live-verified: simulated a real MALFUNCTION
+end-to-end (`monitoring/worker.py`'s exact code path), watched all 3
+real recipients get composed into the message, cleaned up the synthetic
+equipment afterward. **Unchanged gap: no SMTP credentials configured —
+every alert still only reaches the console log, not a real inbox.**
+
 ## Architecture (one paragraph)
 
 `monitoring/lightweight_client.py` (plain httpx) handles ALL steady-state
