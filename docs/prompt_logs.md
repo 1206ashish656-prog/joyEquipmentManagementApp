@@ -161,3 +161,6 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 > Need to add couple of more changes to the current state of the application
 > 1) Add department and sub-department field mapping for each staff as well. For instance. employee 1 is mapped to Operations team and within that part of logistics only
 > 2) Raw data for cost across categories should only be displayed if explicitly asked by user. Add radio butto for user to select if they want to view raw data or not
+
+**26.**
+> why does today's order data not loaded? For same day, fetch the data realtime and keep updating the order summary database with the updated data.

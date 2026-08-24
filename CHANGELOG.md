@@ -52,6 +52,23 @@ was already how `require_venue_partner` was built.
 See README's "Cost Management and Staff & Leave Management" section for
 the full picture. 196/196 tests passing.
 
+**Follow-up (2026-08-24): `orders/realtime_worker.py`.** Answers "why
+does today's order data not show up?" — `orders/backfill.py` only ever
+processes a fully-elapsed date on purpose (a day still accumulating
+orders would get permanently cached on a partial snapshot otherwise), so
+today never appears until tomorrow's backfill run. This new script is
+the deliberate exception: always targets "today" in the target's own
+UTC+8 calendar (recomputed every cycle) and unconditionally overwrites,
+whether or not that date already has a `SUCCESS` row. `python -m
+orders.realtime_worker --loop` (default every 5 minutes) runs as a
+fourth long-lived process alongside the equipment worker and dashboard.
+Handles the UTC+8 day-rollover case explicitly — the day that just ended
+gets one final refresh before the new day starts being tracked, so
+orders placed in the last few minutes before midnight aren't lost.
+9 new tests; 205/205 passing overall. Live-verified: today's data was
+confirmed missing, then appeared (215 raw → 172 qualifying orders, 3
+groups) within seconds of running `--once`; `--loop` left running.
+
 ## [2.0.0] — 2026-08-24
 
 Everything built on top of the original equipment-monitoring app (1.0.0):

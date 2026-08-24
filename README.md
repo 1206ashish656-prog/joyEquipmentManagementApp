@@ -223,7 +223,8 @@ SQLite for a quick local run:
 
 ```bash
 DATABASE_URL="sqlite:///data/demo.db" python -m db.seed_admin --name "You" --email you@example.com --password "..."
-DATABASE_URL="sqlite:///data/demo.db" python -m monitoring.worker --loop   # separate terminal
+DATABASE_URL="sqlite:///data/demo.db" python -m monitoring.worker --loop            # separate terminal
+DATABASE_URL="sqlite:///data/demo.db" python -m orders.realtime_worker --loop       # separate terminal — keeps today's orders current
 DATABASE_URL="sqlite:///data/demo.db" uvicorn backend.main:app --host 127.0.0.1 --port 8123
 ```
 
@@ -306,6 +307,42 @@ flexible period/breakdown queries the UI needs.
   consecutive days' earliest/latest order timestamps. Getting this wrong
   would have silently shifted every day's numbers. See
   `docs/target_application_integration_spec.md`.
+- **Full historical backfill completed** 2026-05-02 through 2026-08-23
+  (114 days, zero failures) — see `CHANGELOG.md`'s 2.0.0 entry.
+
+### Today's order data (`orders/realtime_worker.py`)
+
+`orders/backfill.py` deliberately only processes a date once it's fully
+elapsed (see `db/models.py`'s `OrderSummaryRun` docstring) — a day still
+accumulating orders would otherwise get permanently cached on a partial
+snapshot the first time anyone looked at it. The consequence: **today
+never shows up in Order Summary until backfill runs for it tomorrow,**
+which looks like a bug ("why is today's data missing?") but is the
+correct behavior for that script's caching model.
+
+`orders/realtime_worker.py` is the deliberate exception — it always
+targets "today" (recomputed every cycle, in the target's own UTC+8
+calendar, not server-local time) and **unconditionally overwrites**,
+whether or not that date already has a `SUCCESS` row from an earlier
+cycle:
+
+```bash
+DATABASE_URL="sqlite:///data/demo.db" python -m orders.realtime_worker --loop              # every 5 min, forever
+DATABASE_URL="sqlite:///data/demo.db" python -m orders.realtime_worker --loop --interval 120
+DATABASE_URL="sqlite:///data/demo.db" python -m orders.realtime_worker --once               # refresh today once and exit
+```
+
+Run this as a fourth long-lived background process alongside the
+equipment worker and the dashboard (see "How to just run it" below) —
+it's intentionally a separate script from `monitoring/worker.py`, same
+architectural split as the rest of `orders/` from `monitoring/`/
+`services/`. When the UTC+8 date rolls over mid-loop, the day that just
+ended gets **one final refresh** before the new day starts being
+tracked, so orders placed between the last tick and midnight aren't
+silently lost (`orders/realtime_worker.py`'s `run_cycle()`). Live-verified
+2026-08-24: manually confirmed the Order Summary tab was missing today's
+data, ran `--once`, watched it appear (215 raw → 172 qualifying orders,
+3 groups) in both the DB and the dashboard within seconds.
 
 ## Access control (RBAC)
 

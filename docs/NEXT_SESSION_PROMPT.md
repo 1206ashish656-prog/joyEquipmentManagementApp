@@ -113,12 +113,13 @@ day boundaries**, confirmed live, not UTC/IST/local time — see
   is `Refresha`; password and `WEB_SECRET_KEY` are set but not repeated
   here. Never hardcode or log credentials — `NotificationService`
   deliberately never logs SMTP passwords even on failure.
-- **A worker (`--loop`) and dashboard (`uvicorn`, port 8123) may still be
-  running in the background** from live demos, pointed at
+- **A monitoring worker (`--loop`), an orders realtime worker (`--loop`,
+  since 2026-08-24), and the dashboard (`uvicorn`, port 8123) may still
+  be running in the background** from live demos, pointed at
   `data/demo.db` via `DATABASE_URL=sqlite:///data/demo.db` (not the
   `.env` `DB_*`/production path). Check with:
   ```powershell
-  Get-CimInstance Win32_Process -Filter "name='python.exe'" | Where-Object { $_.CommandLine -match 'monitoring.worker|uvicorn' } | Select-Object ProcessId, CommandLine
+  Get-CimInstance Win32_Process -Filter "name='python.exe'" | Where-Object { $_.CommandLine -match 'monitoring.worker|orders.realtime_worker|uvicorn' } | Select-Object ProcessId, CommandLine
   ```
   Demo DB contains 6 real equipment rows plus 2 clearly `[DEMO]`-labeled
   synthetic rows (added for screenshot/badge coverage) — don't mistake
@@ -167,7 +168,28 @@ boundary rather than double-counting or misattributing it). Extracted
 Management reuses it (and Order Summary picked up a `custom` period
 option for free, though its UI doesn't expose it yet — worth adding if
 wanted). 179/179 tests passing; see README's "Cost Management and Staff
-& Leave Management" section and `CHANGELOG.md`'s Unreleased entry.
+& Leave Management" section and `CHANGELOG.md`'s Unreleased entry. Since
+then: staff gained `department`/`sub_department` (free text), and Cost
+Management's Raw Entries table defaults to hidden (a "Raw data: Show /
+Hide" radio pair controls it).
+
+**New: `orders/realtime_worker.py` (2026-08-24)** — answers "why is
+today's order data missing?": `orders/backfill.py` only ever processes a
+fully-elapsed date, on purpose, so today never appears until tomorrow's
+backfill run picks it up. This new script is the deliberate exception —
+always targets "today" in the target's own UTC+8 calendar and
+unconditionally overwrites (no cached-date check), so repeated runs
+reflect the latest snapshot rather than accumulating duplicates. Run
+`python -m orders.realtime_worker --loop` (default every 5 min) as a
+fourth long-lived process alongside the equipment worker and dashboard —
+see README's "Today's order data" section for the full picture,
+including the day-rollover handling (`run_cycle()` gives the day that
+just ended one final refresh before tracking the new day, so orders
+placed in the last few minutes before UTC+8 midnight aren't lost).
+Live-verified 2026-08-24: today's data was indeed missing before this,
+appeared correctly after one `--once` run (215 raw → 172 qualifying
+orders), and the `--loop` process is running continuously since. 9 new
+tests; 205/205 passing overall.
 
 ## Architecture (one paragraph)
 
@@ -227,5 +249,6 @@ dashboard (chosen over Next.js — confirmed with the user; see README).
 .venv\Scripts\activate
 $env:DATABASE_URL = "sqlite:///data/demo.db"   # or omit for real Postgres via .env's DB_*
 python -m monitoring.worker --loop              # terminal 1
-uvicorn backend.main:app --host 127.0.0.1 --port 8123   # terminal 2
+python -m orders.realtime_worker --loop         # terminal 2 -- keeps TODAY's order data current
+uvicorn backend.main:app --host 127.0.0.1 --port 8123   # terminal 3
 ```
