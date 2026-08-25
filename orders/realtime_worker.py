@@ -95,6 +95,13 @@ async def run_cycle(client: OrdersClient, last_seen_date: str | None, today_fn=t
     refresh of the day that just ended. Returns the date to pass back in
     as `last_seen_date` next time. Factored out of run_loop so the
     rollover logic is testable without an actual sleep loop."""
+    # Cheap (a small file read) and safe to do unconditionally every
+    # cycle, whether or not a re-auth actually happened elsewhere — see
+    # OrdersClient.reload_cookies()'s own docstring for why this matters
+    # when running alongside monitoring.worker in the same process
+    # (monitoring/combined_worker.py).
+    client.reload_cookies()
+
     current = today_fn()
 
     if last_seen_date is not None and current != last_seen_date:

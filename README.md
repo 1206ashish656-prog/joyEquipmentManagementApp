@@ -223,10 +223,15 @@ SQLite for a quick local run:
 
 ```bash
 DATABASE_URL="sqlite:///data/demo.db" python -m db.seed_admin --name "You" --email you@example.com --password "..."
-DATABASE_URL="sqlite:///data/demo.db" python -m monitoring.worker --loop            # separate terminal
-DATABASE_URL="sqlite:///data/demo.db" python -m orders.realtime_worker --loop       # separate terminal — keeps today's orders current
+DATABASE_URL="sqlite:///data/demo.db" python -m monitoring.combined_worker --loop   # separate terminal — equipment polling + today's orders, one process
 DATABASE_URL="sqlite:///data/demo.db" uvicorn backend.main:app --host 127.0.0.1 --port 8123
 ```
+
+(`monitoring.worker` and `orders.realtime_worker` still work standalone
+in their own separate terminals too, exactly as before — useful for
+debugging one loop in isolation — but `monitoring.combined_worker` is
+the normal way to run both now, matching the cloud deployment's own
+`combined-worker` service.)
 
 ### Tests
 
@@ -626,23 +631,66 @@ only preserved in `EquipmentRecord.raw`/`FaultIncident`'s audit trail.
 
 ## Next steps (not yet implemented)
 
-- 🔖 **Bookmarked: host on an always-on cloud environment.** Needed to
-  fix the sleep/standby constraint above — the worker and dashboard need
-  to run somewhere that never suspends. Candidates once this is picked
-  up: a small always-on VM (the Docker images already planned for Phase
-  6 make this straightforward), or a managed container/PaaS platform
-  (e.g. a small persistent worker service + web service pair) using the
-  existing `docker-compose.yml` as the starting point for the worker
-  side and a managed Postgres instance in place of the local container.
-  Also closes the live-Postgres verification gap in the same move.
-- Close the live-Postgres/SMTP verification gap once infra is available
-  (see "Known gap" above).
-- Phase 6: Alembic migrations, structured logging, retry-with-backoff
-  within a poll cycle (spec §26), browser crash recovery, Docker images
-  for the worker + backend, secrets manager, DB backups, rate limiting.
+- ~~🔖 Bookmarked: host on an always-on cloud environment~~ — **in
+  progress as of 2026-08-25**, see "Deploying to the cloud" below.
+- Close the live-SMTP verification gap once real credentials are set
+  (see "Known gap" above and the Alert Recipients section) — separate
+  from cloud hosting, in progress independently.
+- Phase 6 (partially addressed by the cloud deployment below — Docker
+  images now exist, live Postgres will be closed once actually
+  deployed): Alembic migrations, structured logging, retry-with-backoff
+  within a poll cycle (spec §26), browser crash recovery, secrets
+  manager, DB backups, rate limiting.
 - Optional: swap the dashboard for a Next.js frontend against the
   existing `backend/api/` routes, if still wanted after seeing the
   server-rendered version.
 - Wire the API's rich `this_fault` per-component detail into incident
   records once the health-rule vocabulary is confirmed against a real
   fault.
+
+## Deploying to the cloud (Railway)
+
+The app runs as **two** deployed services sharing one Docker image
+(`Dockerfile`, repo root) plus a managed Postgres — not three, even
+though there are three local `--loop` scripts (`monitoring/worker.py`,
+`orders/realtime_worker.py`, `uvicorn`). Why: only `monitoring.worker`
+ever re-authenticates via Playwright and writes a fresh session to
+`STORAGE_STATE_PATH`; `orders/client.py`'s `OrdersClient` reads that same
+file. Hosting platforms attach a persistent volume to exactly one
+service each, so running the two workers as separate services would
+leave `orders.realtime_worker` with no way to ever see a fresh session
+after the first one. **`monitoring/combined_worker.py`** is the fix —
+it runs both existing loops (`monitoring.worker`'s `run_forever()` and
+`orders.realtime_worker`'s `run_loop()`, both completely unmodified —
+this is a thin `asyncio.gather()` wrapper) in one process, so they share
+one container filesystem and therefore one volume. The other half of
+the fix is `OrdersClient.reload_cookies()` (new) — without it, being in
+the same process wouldn't be enough on its own, since this client
+previously only ever loaded the session file once, at construction.
+Both scripts still work completely unchanged standalone for local dev
+(`python -m monitoring.worker --loop` / `python -m orders.realtime_worker --loop`).
+
+**Deployed services**: `web` (`uvicorn backend.main:app`, public,
+`/healthz` for the platform's health check) and `combined-worker`
+(`python -m monitoring.combined_worker --loop`, no public port, one
+persistent volume mounted at `/app/data` for the session file) — plus a
+managed Postgres addon. `Dockerfile` uses
+`mcr.microsoft.com/playwright/python:v1.47.0-jammy` as its base image
+(version-matched to `requirements.txt`'s `playwright==1.47.0` pin) so
+headless Chromium is already present for `combined-worker`'s rare
+re-auth events — `web` never touches Playwright at all (spec §30).
+
+Full step-by-step walkthrough (account creation through first deploy
+through verification, written for a first-time cloud deployer):
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+**Explicitly deferred for this first deployment** (per "continue
+building the remaining features later"): Alembic migrations (schema
+still created via `Base.metadata.create_all()`, run once by the
+`db.seed_admin`/`db.seed_venue_mapping` one-off commands after first
+deploy), rate limiting, CSRF protection, structured logging/observability,
+automated DB backups, a custom domain.
+
+**Not free** — two always-on processes plus managed Postgres is
+continuous compute. Realistic range on Railway for this workload:
+**~$10–20/mo**, moving with actual usage.

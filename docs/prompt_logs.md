@@ -183,3 +183,20 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 > Now, let's build the email alerting system. The expectation is as soon as malfunction observed, the email notification should be sent to provided receipients (configurable). The notification should specify the machine in which malfunction occured and it's details
 
 **31a.** `[choice]` Add a flat recipient list *(answer to "Is the existing admin-always + /subscriptions model what you meant, or a simpler flat list of recipient emails not tied to dashboard logins?")*
+
+**32.**
+> Why the order summary data has not updated? I see stale data. Ensure the order_summary updates within few seconds the user becomes active
+
+*(Interrupted mid-diagnosis by the next message — the diagnosis itself was never completed/answered in this session.)*
+
+**33.**
+> Guide me on how to get app password for setting smtp server. Provide step by step guidance
+
+**34.**
+> Provide stepwise guideline to generate smtp credentials
+
+**35.**
+> Help me productionize this application. We can continue building the remaining features later.
+> This is the first time I am deploying any application on cloud. So, help me understand the deployment process
+
+**35a.** `[choice]` Merge into one worker service (Recommended) *(answer to "How should we handle monitoring-worker and orders-worker needing the same session file across two services that can't share a volume?")*

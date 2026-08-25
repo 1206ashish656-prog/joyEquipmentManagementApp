@@ -1,0 +1,23 @@
+# Not needed inside the image — production's equivalent of data/
+# (just the Playwright session file) comes from the mounted volume at
+# runtime, not baked in. .env is excluded as defense-in-depth even
+# though it's already git-ignored (protects against a future
+# accidental `git add -f`) — real secrets are injected as platform
+# environment variables, never shipped in the image.
+.git/
+.gitignore
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+docs/
+data/
+.env
+.env.*
+!.env.example
+.claude/
+.vscode/
+.idea/
+*.log

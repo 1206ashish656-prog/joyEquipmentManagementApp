@@ -113,13 +113,15 @@ day boundaries**, confirmed live, not UTC/IST/local time — see
   is `Refresha`; password and `WEB_SECRET_KEY` are set but not repeated
   here. Never hardcode or log credentials — `NotificationService`
   deliberately never logs SMTP passwords even on failure.
-- **A monitoring worker (`--loop`), an orders realtime worker (`--loop`,
-  since 2026-08-24), and the dashboard (`uvicorn`, port 8123) may still
-  be running in the background** from live demos, pointed at
-  `data/demo.db` via `DATABASE_URL=sqlite:///data/demo.db` (not the
-  `.env` `DB_*`/production path). Check with:
+- **`monitoring.combined_worker --loop`** (since 2026-08-25 — replaces
+  the old separate `monitoring.worker`/`orders.realtime_worker`
+  processes for local dev too, not just cloud) **and the dashboard
+  (`uvicorn`, port 8123) may still be running in the background** from
+  live demos, pointed at `data/demo.db` via
+  `DATABASE_URL=sqlite:///data/demo.db` (not the `.env` `DB_*`/production
+  path). Check with:
   ```powershell
-  Get-CimInstance Win32_Process -Filter "name='python.exe'" | Where-Object { $_.CommandLine -match 'monitoring.worker|orders.realtime_worker|uvicorn' } | Select-Object ProcessId, CommandLine
+  Get-CimInstance Win32_Process -Filter "name='python.exe'" | Where-Object { $_.CommandLine -match 'combined_worker|monitoring.worker|orders.realtime_worker|uvicorn' } | Select-Object ProcessId, CommandLine
   ```
   Demo DB contains 6 real equipment rows plus 2 clearly `[DEMO]`-labeled
   synthetic rows (added for screenshot/badge coverage) — don't mistake
@@ -234,6 +236,43 @@ real recipients get composed into the message, cleaned up the synthetic
 equipment afterward. **Unchanged gap: no SMTP credentials configured —
 every alert still only reaches the console log, not a real inbox.**
 
+**New (2026-08-25): cloud deployment, resolving the long-bookmarked
+"host on an always-on cloud environment" gap.** Used plan mode (a Plan
+agent + live verification) since this is the user's first-ever cloud
+deployment. Recommended Railway over Render/Fly.io (see README's
+"Deploying to the cloud" for reasoning). Architecture: **2** deployed
+services, not 3, even though there are 3 local `--loop` scripts —
+verified `orders/client.py`'s `OrdersClient` never reloaded its session
+cookies after construction (unlike `monitoring/lightweight_client.py`'s
+`LightweightTargetClient`, which does), and confirmed cloud platforms
+attach a persistent volume to exactly one service each, so running the
+two workers as separate services would leave `orders.realtime_worker`
+permanently stuck on its first-ever session. Fixed properly (user chose
+this over documenting a manual workaround): new
+`OrdersClient.reload_cookies()` + `orders/realtime_worker.py`'s
+`run_cycle()` calling it every cycle, plus new
+`monitoring/combined_worker.py` (thin `asyncio.gather()` of the two
+existing, completely unmodified loops) so both run in one process/one
+volume. `monitoring.worker`/`orders.realtime_worker` still work
+standalone for local dev, unchanged. New `Dockerfile` (base:
+`mcr.microsoft.com/playwright/python:v1.47.0-jammy`, version-matched to
+the `playwright==1.47.0` pin), `.dockerignore`, and a public `/healthz`
+(`backend/api/health.py` — the existing `/api/monitoring/status` needs
+login, not suitable for a platform health check). Full walkthrough:
+`docs/DEPLOYMENT.md` (new). 5 new tests (`reload_cookies()` behavior,
+`run_cycle()` calling it, `/healthz`). 238/238 passing. Live-verified
+**against the real target**, not just tests: ran
+`monitoring.combined_worker --loop` locally, confirmed both loops'
+log lines interleaved in one stream (equipment poll cycles + order
+refreshes) and `/healthz` responds without a login cookie. **Docker
+itself was never actually build-tested — no Docker available in this
+dev environment** — flagged honestly rather than claimed; the Dockerfile
+follows documented best practices and the code path it runs was verified
+directly, but the image build itself is unverified until the first real
+Railway deploy. Deployment execution itself (account creation, clicking
+through Railway's UI, entering billing) is the user's own next step —
+not something done in this session.
+
 ## Architecture (one paragraph)
 
 `monitoring/lightweight_client.py` (plain httpx) handles ALL steady-state
@@ -291,7 +330,6 @@ dashboard (chosen over Next.js — confirmed with the user; see README).
 ```powershell
 .venv\Scripts\activate
 $env:DATABASE_URL = "sqlite:///data/demo.db"   # or omit for real Postgres via .env's DB_*
-python -m monitoring.worker --loop              # terminal 1
-python -m orders.realtime_worker --loop         # terminal 2 -- keeps TODAY's order data current
-uvicorn backend.main:app --host 127.0.0.1 --port 8123   # terminal 3
+python -m monitoring.combined_worker --loop     # terminal 1 -- equipment polling + today's orders, one process (see below)
+uvicorn backend.main:app --host 127.0.0.1 --port 8123   # terminal 2
 ```

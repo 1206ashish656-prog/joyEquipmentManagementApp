@@ -156,6 +156,63 @@ remaining real gap, unchanged from Phase 4**: no SMTP credentials are
 configured, so every alert still only reaches the console log, not a
 real inbox.
 
+**Follow-up (2026-08-25): cloud deployment.** Resolves the long-🔖
+bookmarked "host on an always-on cloud environment" gap — the user's
+first-ever cloud deployment, so this used plan mode (a Plan agent for
+research + design, live verification of every claim before trusting it,
+one clarifying question to the user on a real architectural tradeoff)
+rather than just executing.
+
+Recommended **Railway** over Render/Fly.io — cheapest and simplest for
+this workload's shape (one web process + one background worker sharing
+a filesystem, managed Postgres, no VPC/IAM knowledge needed); reasoning
+in `docs/DEPLOYMENT.md`.
+
+**Architecture is 2 deployed services, not 3**, even though there are 3
+local `--loop` scripts. Real finding, not assumed: verified
+`orders/client.py`'s `OrdersClient` only ever loaded its session cookies
+once, at construction — unlike `monitoring/lightweight_client.py`'s
+`LightweightTargetClient`, which reloads after every re-auth — and that
+cloud platforms attach a persistent volume to exactly one service each.
+Running the two workers as separate deployed services would have left
+`orders-worker` permanently stuck on its very first session, quietly
+breaking Order Summary the next time a re-login happened. Asked the
+user rather than deciding alone: fix it properly, or document a manual
+workaround? Chose the fix:
+- `OrdersClient.reload_cookies()` (new) — mirrors
+  `LightweightTargetClient`'s existing pattern.
+- `orders/realtime_worker.py`'s `run_cycle()` now calls it once per
+  cycle — cheap, correct whether or not a re-auth just happened.
+- `monitoring/combined_worker.py` (new) — runs `monitoring.worker`'s
+  and `orders.realtime_worker`'s existing loops concurrently via
+  `asyncio.gather()`, zero logic duplicated, both loops still work
+  completely unchanged standalone for local dev. This is now also the
+  normal way to run both locally (replaced the two separate background
+  processes in this session's own dev setup).
+
+New `Dockerfile` (base `mcr.microsoft.com/playwright/python:v1.47.0-jammy`,
+version-matched to the `playwright==1.47.0` pin — ships headless
+Chromium pre-installed, avoiding ~20 manual apt packages), `.dockerignore`,
+and a public `GET /healthz` (`backend/api/health.py`) — the existing
+`/api/monitoring/status` requires login and isn't suitable for a
+platform health check. Full step-by-step walkthrough (account creation
+through verification, written for a first-timer): `docs/DEPLOYMENT.md`.
+
+5 new tests (`reload_cookies()` correctness, `run_cycle()` calling it
+exactly once per cycle, `/healthz`). 238/238 passing overall.
+Live-verified **against the real target, not just tests**: ran
+`monitoring.combined_worker --loop` locally, confirmed both loops' log
+lines genuinely interleaved in one stream (equipment poll cycles +
+order refreshes, not just started-and-forgotten), confirmed `/healthz`
+responds with no login cookie required. **Honestly flagged, not
+glossed over**: the Dockerfile itself was never build-tested — no
+Docker available in this dev environment — so the image build is
+unverified until the first real Railway deploy, even though the Python
+code path it runs was verified directly. Deployment execution itself
+(account creation, clicking through Railway's own UI, billing) is the
+user's own next step, not something this session could do on their
+behalf.
+
 ## [2.0.0] — 2026-08-24
 
 Everything built on top of the original equipment-monitoring app (1.0.0):

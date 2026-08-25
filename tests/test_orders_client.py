@@ -148,3 +148,47 @@ async def test_fetch_day_paginates_within_each_target_day(tmp_path):
     records = await client.fetch_day("2026-08-24")
 
     assert len(records) == 150
+
+
+# --- reload_cookies() ---
+# Needed so a fresh session written by monitoring.worker's re-auth
+# (running alongside this client in monitoring/combined_worker.py) is
+# actually picked up -- this client previously only ever read the
+# session file once, at construction.
+
+def test_client_starts_with_no_cookies_when_session_file_missing(tmp_path):
+    settings = _settings(tmp_path)
+    client = OrdersClient(settings)
+    assert len(client._http.cookies) == 0
+
+
+def test_reload_cookies_picks_up_a_session_file_written_after_construction(tmp_path):
+    settings = _settings(tmp_path)
+    client = OrdersClient(settings)
+    assert len(client._http.cookies) == 0  # nothing on disk yet at construction time
+
+    settings.storage_state_path.write_text(
+        json.dumps({"cookies": [{"name": "PHPSESSID", "value": "abc123", "domain": "www.jwintell.com", "path": "/"}], "origins": []}),
+        encoding="utf-8",
+    )
+    client.reload_cookies()
+
+    assert client._http.cookies.get("PHPSESSID", domain="www.jwintell.com") == "abc123"
+
+
+def test_reload_cookies_replaces_stale_cookies_not_just_adds(tmp_path):
+    settings = _settings(tmp_path)
+    settings.storage_state_path.write_text(
+        json.dumps({"cookies": [{"name": "PHPSESSID", "value": "old-session", "domain": "www.jwintell.com", "path": "/"}], "origins": []}),
+        encoding="utf-8",
+    )
+    client = OrdersClient(settings)
+    assert client._http.cookies.get("PHPSESSID", domain="www.jwintell.com") == "old-session"
+
+    settings.storage_state_path.write_text(
+        json.dumps({"cookies": [{"name": "PHPSESSID", "value": "new-session-after-reauth", "domain": "www.jwintell.com", "path": "/"}], "origins": []}),
+        encoding="utf-8",
+    )
+    client.reload_cookies()
+
+    assert client._http.cookies.get("PHPSESSID", domain="www.jwintell.com") == "new-session-after-reauth"

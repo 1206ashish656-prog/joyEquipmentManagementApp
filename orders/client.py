@@ -51,6 +51,27 @@ class OrdersClient:
             headers={"User-Agent": USER_AGENT},
         )
 
+    def reload_cookies(self) -> None:
+        """Re-reads STORAGE_STATE_PATH from disk into a fresh httpx
+        client. Mirrors monitoring/lightweight_client.py's
+        LightweightTargetClient.reload_cookies() — this client
+        previously only ever loaded cookies once, at construction, which
+        is fine when it's its own standalone process (each fresh process
+        re-reads on startup) but wrong when running alongside
+        monitoring.worker in the SAME process (see
+        monitoring/combined_worker.py): a re-auth there rewrites the
+        session file on disk, and without this, this client would keep
+        using its now-stale in-memory cookies for the rest of its
+        lifetime. orders/realtime_worker.py's run_cycle() calls this
+        once per cycle, cheap enough to do unconditionally rather than
+        trying to detect whether a re-auth actually happened."""
+        self._http = httpx.AsyncClient(
+            cookies=load_cookies(self.settings.storage_state_path),
+            follow_redirects=True,
+            timeout=20.0,
+            headers={"User-Agent": USER_AGENT},
+        )
+
     async def fetch_day(self, ist_date_str: str) -> list[OrderRecord]:
         """ist_date_str: 'YYYY-MM-DD', an IST calendar day. Queries the
         target's own UTC+8-bucketed RANGE filter for BOTH of the target

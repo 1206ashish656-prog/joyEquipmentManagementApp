@@ -38,12 +38,17 @@ def db(monkeypatch):
 class FakeOrdersClient:
     """Spy: records every date fetch_day was called with, and returns
     whatever's configured for that date (default: empty -- a quiet
-    day)."""
+    day). Also counts reload_cookies() calls, since run_cycle() is
+    expected to call it once per cycle (see OrdersClient.reload_cookies)."""
 
     def __init__(self, records_by_date: dict[str, list] | None = None, fail_dates: set[str] | None = None):
         self.records_by_date = records_by_date or {}
         self.fail_dates = fail_dates or set()
         self.fetch_calls: list[str] = []
+        self.reload_cookies_calls = 0
+
+    def reload_cookies(self) -> None:
+        self.reload_cookies_calls += 1
 
     async def fetch_day(self, date_str: str):
         self.fetch_calls.append(date_str)
@@ -184,3 +189,16 @@ async def test_run_cycle_date_rollover_refreshes_both_days(db):
     assert last_seen == "2026-08-25"
     # Old day refreshed first (final snapshot), then the new day.
     assert client.fetch_calls == ["2026-08-24", "2026-08-25"]
+
+
+@pytest.mark.asyncio
+async def test_run_cycle_reloads_cookies_exactly_once_per_cycle(db):
+    """Needed so a fresh session written by monitoring.worker (running
+    alongside this loop in monitoring/combined_worker.py) actually gets
+    picked up -- see OrdersClient.reload_cookies()."""
+    client = FakeOrdersClient()
+    today_fn = _today_fn_sequence(["2026-08-24", "2026-08-24"])
+    await run_cycle(client, None, today_fn=today_fn)
+    assert client.reload_cookies_calls == 1
+    await run_cycle(client, "2026-08-24", today_fn=today_fn)
+    assert client.reload_cookies_calls == 2
