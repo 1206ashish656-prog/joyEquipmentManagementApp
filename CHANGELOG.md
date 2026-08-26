@@ -9,6 +9,21 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**docs/LOCAL_SHARING.md** (new) — how to expose the locally-running app
+to one specific external person without cloud deployment, per explicit
+request ("expose this application to a friend... securely... restrict
+the access to this application only"). Cloudflare Tunnel (`cloudflared`)
+forwards only port 8123 to a chosen hostname — no other port/service on
+the machine is reachable, no router/firewall changes needed (outbound-only
+connection). Cloudflare Access (email allow-list) gates the tunnel itself
+— anyone not on the list is stopped at Cloudflare's edge before ever
+reaching the app; the app's own login (existing) is the second,
+independent layer once past that gate. Verified no code changes were
+needed first: checked `backend/api/auth.py`'s session cookie doesn't
+hardcode a domain, so it works correctly under a different external
+hostname without modification. Documentation only — the actual setup
+requires the user's own Cloudflare account/domain and wasn't run here.
+
 **docs/OPERATIONS_RUNBOOK.md** (new) — a copy-pasteable command
 reference for the application management team: restarting the server,
 backfilling order data, adding/removing test equipment, triggering

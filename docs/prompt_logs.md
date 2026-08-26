@@ -247,3 +247,8 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 > check why dashboard is not updating the data. It showing stale data
 
 **46a.** `[choice]` Enable WAL mode + busy_timeout (Recommended) *(answer to an AskUserQuestion on how to address the "database is locked" crash recurring for the second time in one session)*
+
+**47.**
+> Suppose I want to expose this application to a friend. How can I do that without deploying it on cloud and securely make it accessible through my local system. Restricting the access to this application only
+
+**47a.** `[choice]` Cloudflare Tunnel + Access *(answer to an AskUserQuestion comparing Tailscale / Cloudflare Tunnel+Access / ngrok quick tunnel)*
