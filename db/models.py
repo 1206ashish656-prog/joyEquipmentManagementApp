@@ -408,3 +408,58 @@ class StaffLeave(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     staff: Mapped["Staff"] = relationship(back_populates="leaves")
+
+
+# --- Inventory management (admin/operations — see backend/api/inventory.py) ---
+#
+# A FIXED set of 10 known consumables, each holding its CURRENT stock —
+# architecturally closer to EquipmentCurrentState (a live "now" row) than
+# to CostEntry's open-ended, period-summarized ledger. Item creation is
+# seed-script-only (db/seed_inventory_items.py); there's no in-app "add a
+# new item" flow, matching the fixed list in the spec.
+
+INVENTORY_ITEM_ORDER = (
+    "oranges", "sealing_films", "glasses", "straws", "kitchen_cleaner",
+    "dustbin_bags", "floor_cleaner", "orange_refill_bags", "shower_caps", "gloves",
+)
+
+INVENTORY_ENTRY_TYPES = ("usage", "correction")
+
+
+class InventoryItem(Base):
+    __tablename__ = "inventory_item"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # stable slug, e.g. "oranges" — matches config/inventory_rules.yaml
+    name: Mapped[str] = mapped_column(String(255))  # display label, e.g. "Oranges"
+    unit: Mapped[str] = mapped_column(String(32))  # display unit for current_stock, e.g. "boxes", "pieces"
+    # ONLY set for glasses/straws -- a pure conversion aid for the
+    # form/display. current_stock is ALWAYS in the item's base unit
+    # (pieces for glasses/straws, otherwise its own unit) so the
+    # usage-decrement/set-stock code never needs item-type branching.
+    pieces_per_carton: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    current_stock: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+
+class InventoryLogEntry(Base):
+    """One audit-trail table for BOTH usage and stock corrections/restocks
+    (entry_type discriminator) -- they share identical columns and both
+    feed the same low-stock crossing-check and the same "recent activity"
+    view, so two tables would just force that view to union two queries
+    for no modeling benefit. Immutable once created (like StaffLeave) —
+    a mistaken entry is corrected via a new "correction" row, never
+    edited/deleted, so the audit trail is always complete."""
+
+    __tablename__ = "inventory_log_entry"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("inventory_item.id"), index=True)
+    entry_type: Mapped[str] = mapped_column(String(16), index=True)  # one of INVENTORY_ENTRY_TYPES
+    date: Mapped[str] = mapped_column(String(10))  # 'YYYY-MM-DD', same convention as CostEntry.date -- may be backdated
+    quantity_change: Mapped[int] = mapped_column(Integer)  # signed delta actually applied to current_stock
+    resulting_stock: Mapped[int] = mapped_column(Integer)  # current_stock immediately after this entry
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

@@ -252,3 +252,39 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 > Suppose I want to expose this application to a friend. How can I do that without deploying it on cloud and securely make it accessible through my local system. Restricting the access to this application only
 
 **47a.** `[choice]` Cloudflare Tunnel + Access *(answer to an AskUserQuestion comparing Tailscale / Cloudflare Tunnel+Access / ngrok quick tunnel)*
+
+**48.**
+> Use cloudflare url tunneling to host this application.
+
+**49.**
+> I have logged in into cloudflare, complete rest of the steps
+
+**50.**
+> try again now with refresha.in
+
+**50a.** `[choice]` Fix joyequiptmenthealth.in *(answer to an AskUserQuestion on which domain to actually use, after refresha.in also failed to resolve)*
+
+**51.**
+> why does order summary endpoint requires refresh to update data on GUI?
+
+**52.**
+> No need to make any change for manual refresh to order summary dashboard
+> Let's add another feature for inventory management
+> Key items that are used
+> - Oranges (number of boxes sourced)
+> - Sealing films (units)
+> - Glasses (number of cartons & pieces per carton)
+> - Straws ( number of cartons & pieces per carton)
+> - Kitchen cleaner
+> - Dustbin bags (number of packs)
+> - Floor cleaner
+> - Orange Refill bags (number of packets)
+> - Shower caps
+> - Gloves
+>
+> This inventory can be managed by admin or operations team. Add a warning trigger in case inventory for particular items falls below certain threshold (maintained in inventory config)
+> The dasboard should provide current state of inventory and provide a form to user to add used inventory today. Once user adds inventory, the state of inventory should adjust for the updated information
+
+**52a.** `[choice]` Settable current stock (Recommended) *(answer to an AskUserQuestion on how restocking should work)*
+
+**52b.** `[choice]` Email alert + dashboard warning (Recommended) *(answer to an AskUserQuestion on low-stock alert delivery)*

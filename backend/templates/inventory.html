@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Inventory Management — Equipment Monitor{% endblock %}
+{% block content %}
+<h1>Inventory Management</h1>
+
+<section class="counts" style="grid-template-columns: repeat(2, 1fr); max-width: 460px;">
+  <div class="count-tile"><div class="n">{{ items|length }}</div><div class="label">Items Tracked</div></div>
+  <div class="count-tile"><div class="n">{{ low_count }}</div><div class="label">⚠ Below Threshold</div></div>
+</section>
+
+<section>
+  <h2>Current Stock</h2>
+  <table class="equipment-table">
+    <thead>
+      <tr><th>Item</th><th>Unit</th><th>Current Stock</th><th>Cartons (approx.)</th><th>Threshold</th><th>Status</th><th>Set Stock</th></tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      {% set item = row.item %}
+      <tr{% if row.is_low %} style="background: var(--warning-bg);"{% endif %}>
+        <td>{{ item.name }}</td>
+        <td>{{ item.unit }}</td>
+        <td>{{ item.current_stock }}</td>
+        <td>
+          {% if item.pieces_per_carton %}
+          {{ (item.current_stock // item.pieces_per_carton) }} cartons + {{ item.current_stock % item.pieces_per_carton }} pcs
+          {% else %}
+          —
+          {% endif %}
+        </td>
+        <td>{{ row.threshold }} {{ item.unit }}</td>
+        <td>
+          {% if row.is_low %}
+          <span class="badge badge-warning">⚠ Low Stock</span>
+          {% else %}
+          <span class="badge badge-healthy">🟢 OK</span>
+          {% endif %}
+        </td>
+        <td>
+          <form method="post" action="/inventory/{{ item.id }}/set-stock" class="checkbox-label" style="gap:6px;">
+            <input type="number" name="new_stock" min="0" value="{{ item.current_stock }}" required style="width:90px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;">
+            <button type="submit" class="linklike">Set</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7">No inventory items seeded yet — run <code>python -m db.seed_inventory_items</code>.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Log Usage Today</h2>
+  <form method="post" action="/inventory/log-usage" class="stacked-form" id="log-usage-form" style="margin: 0;">
+    <label>Item
+      <select name="item_id" id="usage-item-select">
+        {% for item in items %}
+        <option value="{{ item.id }}" data-pieces-per-carton="{{ item.pieces_per_carton or '' }}" data-unit="{{ item.unit }}">{{ item.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Date<input type="date" name="date" value="{{ today }}" required></label>
+    <label id="plain-quantity-field">Quantity used
+      <input type="number" id="plain-quantity-input" min="0" value="0">
+    </label>
+    <label id="cartons-field" style="display:none;">Cartons used
+      <input type="number" id="cartons-input" min="0" value="0">
+    </label>
+    <label id="loose-pieces-field" style="display:none;">Loose pieces used
+      <input type="number" id="loose-pieces-input" min="0" value="0">
+    </label>
+    <input type="hidden" name="quantity_used" id="quantity-used-hidden" value="0">
+    <label>Note (optional)<input type="text" name="note" placeholder="e.g. daily usage"></label>
+    <button type="submit">Log Usage</button>
+  </form>
+</section>
+
+<section>
+  <h2>Recent Activity</h2>
+  <table class="equipment-table">
+    <thead>
+      <tr><th>Date</th><th>Item</th><th>Type</th><th>Change</th><th>Resulting Stock</th><th>Note</th></tr>
+    </thead>
+    <tbody>
+      {% for entry, item in recent_entries %}
+      <tr>
+        <td>{{ entry.date }}</td>
+        <td>{{ item.name }}</td>
+        <td>{{ "Usage" if entry.entry_type == "usage" else "Correction" }}</td>
+        <td>{{ "%+d"|format(entry.quantity_change) }}</td>
+        <td>{{ entry.resulting_stock }}</td>
+        <td>{{ entry.note or "—" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">No activity logged yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<script>
+  (function () {
+    var itemSelect = document.getElementById("usage-item-select");
+    var plainField = document.getElementById("plain-quantity-field");
+    var plainInput = document.getElementById("plain-quantity-input");
+    var cartonsField = document.getElementById("cartons-field");
+    var cartonsInput = document.getElementById("cartons-input");
+    var loosePiecesField = document.getElementById("loose-pieces-field");
+    var loosePiecesInput = document.getElementById("loose-pieces-input");
+    var hiddenQuantity = document.getElementById("quantity-used-hidden");
+    var form = document.getElementById("log-usage-form");
+
+    function isCartonItem() {
+      var opt = itemSelect.options[itemSelect.selectedIndex];
+      return !!(opt && opt.getAttribute("data-pieces-per-carton"));
+    }
+
+    function syncItem() {
+      var cartonItem = isCartonItem();
+      plainField.style.display = cartonItem ? "none" : "flex";
+      cartonsField.style.display = cartonItem ? "flex" : "none";
+      loosePiecesField.style.display = cartonItem ? "flex" : "none";
+    }
+    itemSelect.addEventListener("change", syncItem);
+    syncItem();
+
+    form.addEventListener("submit", function () {
+      if (isCartonItem()) {
+        var opt = itemSelect.options[itemSelect.selectedIndex];
+        var perCarton = parseInt(opt.getAttribute("data-pieces-per-carton"), 10) || 0;
+        var cartons = parseInt(cartonsInput.value, 10) || 0;
+        var loose = parseInt(loosePiecesInput.value, 10) || 0;
+        hiddenQuantity.value = String(cartons * perCarton + loose);
+      } else {
+        hiddenQuantity.value = String(parseInt(plainInput.value, 10) || 0);
+      }
+    });
+  })();
+</script>
+{% endblock %}

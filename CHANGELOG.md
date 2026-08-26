@@ -9,6 +9,64 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Inventory Management** (new, `/inventory`, admin OR operations — the
+same role pair `require_operations` already gates equipment monitoring
+with) — per explicit request: track 10 fixed consumables (Oranges,
+Sealing Films, Glasses, Straws, Kitchen Cleaner, Dustbin Bags, Floor
+Cleaner, Orange Refill Bags, Shower Caps, Gloves), a "Log Usage Today"
+form that decrements stock, a "Set Stock" action for corrections/
+restocks (no separate restock table — chosen via AskUserQuestion over a
+full two-way ledger), and a low-stock warning both emailed and shown as
+a dashboard badge (also chosen via AskUserQuestion).
+
+Architecturally closer to `EquipmentCurrentState` (a fixed set of
+known items, each holding current state) than to Cost Management's
+open-ended ledger — deliberately does NOT reuse
+`backend/period_utils.py`/`costs/rollup.py`. Two new tables:
+`InventoryItem` (current stock always in the item's base unit — pieces
+for Glasses/Straws, with `pieces_per_carton` as a pure conversion aid
+for the form/display, never branched on at the persistence layer) and
+`InventoryLogEntry` (one audit-trail table with an `entry_type`
+discriminator for both usage and correction entries, immutable once
+created). Thresholds are configurable, not hardcoded — new
+`config/inventory_rules.yaml` + `services/inventory_rules.py`, mirroring
+`config/health_rules.yaml`/`HealthEngine`'s exact loading pattern.
+
+The email fires only on the CROSSING (mirrors
+`services/state_manager.py`'s `is_fault and not was_fault`) — new
+`services/inventory_alert.py`, reusing the same admin + `AlertRecipient`
+audience equipment alerts already use, via `NotificationService`
+directly (not `AlertEngine.get_recipients()`, which is signature-coupled
+to `equipment_id`/`AlertSubscription`). The dashboard badge needs no
+persisted flag — recomputed live from `current_stock` vs threshold on
+every render, so it always reflects reality and clears itself the
+instant a correction restocks above threshold.
+
+New seed script `db/seed_inventory_items.py` (idempotent, never resets
+`current_stock` on re-run — only sets it on first creation). Four items
+(Kitchen Cleaner, Floor Cleaner, Shower Caps, Gloves) had no unit
+specified in the request — defaulted to "units", flagged in both the
+seed script and `config/inventory_rules.yaml` for visibility.
+
+Built via formal plan mode (2 Explore agents + 1 Plan agent, 2
+clarifying AskUserQuestion calls on the two genuine design decisions
+above) given the feature's size (2 new tables, a new config file, a new
+RBAC-gated route module, a new alert-service module, a seed script).
+
+38 new tests (`test_inventory_rules.py`, `test_inventory_alert.py` —
+including the core "still-below fires zero additional emails"
+requirement, `test_inventory_backend.py`, `test_seed_inventory_items.py`).
+297/297 passing overall. Live-verified against the real demo DB: seeded
+the 10 items, restarted both processes, confirmed the dashboard renders
+correctly via screenshot — and, live during this same verification
+window, the account owner independently exercised the feature for real
+through their own browser session (`support@refresha.in`), setting real
+stock levels including a Glasses correction (8500 → 5) that crosses
+below its configured threshold (480) — confirmed via the DB directly
+(`inventory_log_entry`) and the web process's access log (no errors),
+though actual email inbox delivery wasn't independently confirmed since
+that requires the account owner's own inbox access.
+
 **docs/LOCAL_SHARING.md** (new) — how to expose the locally-running app
 to one specific external person without cloud deployment, per explicit
 request ("expose this application to a friend... securely... restrict

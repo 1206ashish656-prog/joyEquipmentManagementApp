@@ -1,0 +1,22 @@
+# Configurable low-stock thresholds (Inventory Management feature).
+# Keyed by InventoryItem.key. Threshold is expressed in the SAME base
+# unit InventoryItem.current_stock stores for that item (pieces for
+# glasses/straws, otherwise the item's own unit). Never hardcode a
+# threshold in services/inventory_alert.py — edit this file instead.
+#
+# Starting values below are reasonable defaults, not measured usage —
+# adjust freely; no code change or restart needed beyond the next request
+# (services/inventory_rules.py reads this file fresh on each
+# InventoryRules() construction, same as health_rules.yaml's HealthEngine).
+
+items:
+  oranges:             { threshold: 20 }    # boxes
+  sealing_films:        { threshold: 50 }    # units
+  glasses:              { threshold: 480 }   # pieces (~20 cartons @ 24/carton)
+  straws:                { threshold: 500 }   # pieces (~5 cartons @ 100/carton)
+  kitchen_cleaner:       { threshold: 5 }     # units — unit unspecified in original request, defaulted
+  dustbin_bags:          { threshold: 5 }     # packs
+  floor_cleaner:         { threshold: 5 }     # units — defaulted
+  orange_refill_bags:    { threshold: 20 }    # packets
+  shower_caps:           { threshold: 20 }    # units — defaulted
+  gloves:                { threshold: 20 }    # units — defaulted
