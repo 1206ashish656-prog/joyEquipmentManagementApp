@@ -230,3 +230,11 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 
 **43.**
 > Commit the application until now and add comment specifying version 3 completed with email notification active
+
+**44.**
+> Generate a simple document that can be referred by application management team to run simple task using commands. For instance
+> restarting the server
+> backfilling the data
+> add test data in equipment dashboard
+> triggering email alert process for testing
+> checking or modifying user database and access rights etc

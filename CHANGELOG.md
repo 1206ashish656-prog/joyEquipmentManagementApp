@@ -9,7 +9,27 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
-Nothing yet.
+**docs/OPERATIONS_RUNBOOK.md** (new) — a copy-pasteable command
+reference for the application management team: restarting the server,
+backfilling order data, adding/removing test equipment, triggering
+alert emails for testing, and checking/modifying users and access
+rights.
+
+New CLI to support it, `services/simulate_equipment_event.py` (`add`/
+`remove` subcommands) — formalizes the ad hoc scratchpad pattern used
+repeatedly this session for live-testing into a proper, reusable tool.
+Goes through the exact same `StateManager.process_observation()` path
+the live poller uses, with an optional `--notify` to also exercise the
+real `AlertEngine`/email send. Equipment IDs are required to start with
+`TEST-` (enforced, not just documented) so test data can never be
+mistaken for a real machine and is always safe/obvious to clean up.
+
+9 new tests (id-prefix guard, healthy/malfunction/custom-fault-type,
+no-duplicate-incident-on-repeat, real `--notify` send via mocked SMTP,
+remove + cascade, remove-nonexistent-is-a-no-op). 264/264 passing
+overall. Live-verified against the real demo DB: added a TEST- machine
+healthy, transitioned it to malfunction with `--notify` (confirmed a
+real, non-console-fallback email sent), then removed it.
 
 ## [3.0.0] — 2026-08-26
 
