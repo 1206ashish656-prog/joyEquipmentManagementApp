@@ -31,6 +31,36 @@ overall. Live-verified against the real demo DB: added a TEST- machine
 healthy, transitioned it to malfunction with `--notify` (confirmed a
 real, non-console-fallback email sent), then removed it.
 
+**Follow-up (same day): fixed the recurring "database is locked"
+crash for real.** User asked why the dashboard showed stale data;
+found `monitoring.combined_worker` had silently crashed 3.5 hours
+earlier — same `sqlite3.OperationalError: database is locked` bug
+flagged (but not yet fixed) after its first occurrence — and nothing
+had restarted it since. Root cause confirmed directly, not assumed:
+SQLite's default rollback-journal mode takes an exclusive lock for the
+whole duration of a write, so the worker (writer) and dashboard
+(reader) hitting the same `data/demo.db` file concurrently intermittently
+fails outright instead of waiting; `asyncio.gather()` in
+`monitoring/combined_worker.py` then propagates that one exception and
+kills both loops together, even though only the orders side failed.
+
+Fix, in `db/base.py`'s `init_engine()`: enables SQLite **WAL (Write-
+Ahead Logging) mode** on every connection (lets readers and a single
+writer coexist without blocking each other — the actual fix) plus a
+**30s `busy_timeout`** as a safety net for the rarer writer-vs-writer
+case. No effect on Postgres (guarded by `settings.database_url.startswith("sqlite")`,
+same pattern already used for `check_same_thread`).
+
+4 new tests, including a direct regression reproduction: two live
+sessions against the same SQLite file, one holding a write open, the
+other reading concurrently — passes under WAL, would have raised
+`database is locked` under the old default. 268/268 passing overall.
+Live-verified against the real `data/demo.db`, not just tests: restarted
+both processes, confirmed `PRAGMA journal_mode` reports `wal` and
+`PRAGMA busy_timeout` reports `30000` on the actual file, then hit
+`/healthz` repeatedly while the worker was mid-poll-cycle with no
+errors.
+
 ## [3.0.0] — 2026-08-26
 
 **Version 3.0: the email alerting system is fully active end-to-end** —

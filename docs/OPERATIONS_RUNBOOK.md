@@ -225,12 +225,10 @@ snippet, run by the account owner's request).
 - **Dashboard loads but shows no live updates** — the background worker
   isn't running, or crashed; check `worker.log` (if started per section
   1's backgrounded form) for a Python traceback, then restart it.
-- **`database is locked` in the worker log** — a known SQLite
-  concurrency issue between the worker and web processes under load
-  (see `CHANGELOG.md`'s 3.0.0 entry). Restarting the worker (section 1)
-  resolves it; if it recurs frequently, flag it to a developer — a
-  proper fix (WAL mode, or moving to Postgres) is a known follow-up, not
-  yet done.
+- **`database is locked` in the worker log** — should no longer happen
+  as of 2026-08-26 (SQLite WAL mode + busy_timeout fix, see
+  `CHANGELOG.md`). If it does recur, flag it to a developer — it means
+  the fix didn't cover every case, not that it's expected behavior.
 - **A command fails with `ModuleNotFoundError`** — you're likely not in
   the project's Python virtual environment. Prefix the command with the
   project's own Python instead, e.g.

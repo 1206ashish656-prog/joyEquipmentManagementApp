@@ -238,3 +238,12 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 > add test data in equipment dashboard
 > triggering email alert process for testing
 > checking or modifying user database and access rights etc
+
+**45.**
+> Elaborate on what happens if malfuncion observed for 1 machine and then after 30 minutes another malfunction occurred in different machine. Till this time previous machine was not restarted or malfunction persists.
+> No need to run this scenario, just explain me based on the application setup
+
+**46.**
+> check why dashboard is not updating the data. It showing stale data
+
+**46a.** `[choice]` Enable WAL mode + busy_timeout (Recommended) *(answer to an AskUserQuestion on how to address the "database is locked" crash recurring for the second time in one session)*
