@@ -1,34 +1,12 @@
-"""Unit tests for backend/templating.py's `ist` Jinja filter -- every
-timestamp on the equipment monitoring pages (dashboard, equipment
-detail, faults) is stored as UTC but displayed in IST, per explicit
-request. Reuses orders/mapping.py's IST_TZ rather than a second
-timezone constant."""
+"""Unit test confirming backend/templating.py registers the `ist` Jinja
+filter correctly -- the actual conversion logic (orders/mapping.py's
+format_ist()) is tested in tests/test_orders_mapping.py, since that's
+where it now lives (shared with services/fault_digest.py)."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
-from backend.templating import ist
-
-
-def test_ist_converts_utc_to_ist():
-    # 2026-08-25 18:30:00 UTC = 2026-08-26 00:00:00 IST (UTC+5:30).
-    value = datetime(2026, 8, 25, 18, 30, 0, tzinfo=timezone.utc)
-    assert ist(value) == "26 Aug 2026, 00:00:00 IST"
+from orders.mapping import format_ist
+from backend.templating import templates
 
 
-def test_ist_handles_none():
-    assert ist(None) == "—"
-
-
-def test_ist_assumes_naive_datetime_is_utc():
-    # SQLite can round-trip a tz-aware column back as naive -- must be
-    # treated as UTC (the only thing db/models.py's _utcnow() ever
-    # produces), not left ambiguous or misinterpreted as local time.
-    naive = datetime(2026, 8, 25, 18, 30, 0)
-    aware = datetime(2026, 8, 25, 18, 30, 0, tzinfo=timezone.utc)
-    assert ist(naive) == ist(aware)
-
-
-def test_ist_custom_format():
-    value = datetime(2026, 8, 25, 18, 30, 0, tzinfo=timezone.utc)
-    assert ist(value, fmt="%Y-%m-%d") == "2026-08-26"
+def test_ist_filter_is_registered_and_uses_the_shared_implementation():
+    assert templates.env.filters["ist"] is format_ist

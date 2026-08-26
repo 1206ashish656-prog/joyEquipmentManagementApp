@@ -29,6 +29,12 @@ class Notification:
     to: list[str]
     subject: str
     body: str
+    # Optional HTML alternative (e.g. services/fault_digest.py's tabular
+    # critical-faults report) -- when set, EmailNotificationChannel sends
+    # a proper multipart/alternative message (plain text body stays as
+    # the fallback for clients that don't render HTML); when None,
+    # behavior is unchanged from before this field existed.
+    html_body: str | None = None
 
 
 class NotificationChannel(ABC):
@@ -47,8 +53,9 @@ class ConsoleNotificationChannel(NotificationChannel):
 
     def send(self, notification: Notification) -> bool:
         logger.info(
-            "[console-channel — no SMTP configured] To: %s | Subject: %s\n%s",
+            "[console-channel — no SMTP configured] To: %s | Subject: %s\n%s%s",
             ", ".join(notification.to), notification.subject, notification.body,
+            "\n[+ an HTML alternative body, not shown here]" if notification.html_body else "",
         )
         return True
 
@@ -71,6 +78,11 @@ class EmailNotificationChannel(NotificationChannel):
         msg["From"] = self._from_email
         msg["To"] = ", ".join(notification.to)
         msg.set_content(notification.body)
+        if notification.html_body:
+            # multipart/alternative: the plain-text set_content() above
+            # stays as the fallback for a client that can't render HTML;
+            # most clients show this HTML part instead.
+            msg.add_alternative(notification.html_body, subtype="html")
 
         try:
             with smtplib.SMTP(self._host, self._port, timeout=15) as smtp:
@@ -96,8 +108,8 @@ class NotificationService:
             EmailNotificationChannel(settings) if settings.smtp_configured else ConsoleNotificationChannel()
         )
 
-    def send_email(self, to: list[str], subject: str, body: str) -> bool:
+    def send_email(self, to: list[str], subject: str, body: str, html_body: str | None = None) -> bool:
         if not to:
             logger.warning("send_email called with no recipients — subject=%r", subject)
             return False
-        return self._channel.send(Notification(to=to, subject=subject, body=body))
+        return self._channel.send(Notification(to=to, subject=subject, body=body, html_body=html_body))

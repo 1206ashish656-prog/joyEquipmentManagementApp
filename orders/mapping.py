@@ -30,6 +30,21 @@ TARGET_TZ = timezone(timedelta(hours=8), name="UTC+8 (target server's own RANGE-
 IST_TZ = timezone(timedelta(hours=5, minutes=30), name="IST (India Standard Time)")
 
 
+def format_ist(value: datetime | None, fmt: str = "%d %b %Y, %H:%M:%S IST") -> str:
+    """Shared display helper: convert a UTC (or naive-assumed-UTC —
+    SQLite can drop tzinfo on round-trip) datetime to an IST string.
+    Lives here alongside IST_TZ despite this module's own "orders,
+    not equipment health" separation, because IST_TZ was already a
+    cross-cutting constant before this (backend/templating.py's `ist`
+    Jinja filter, services/fault_digest.py's plain-text/HTML tables) —
+    one shared implementation beats three copies of the same six lines."""
+    if value is None:
+        return "—"
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(IST_TZ).strftime(fmt)
+
+
 def _get_nested(d: dict, dotted_path: str, default=None):
     cur: Any = d
     for part in dotted_path.split("."):

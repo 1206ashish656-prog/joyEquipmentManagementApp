@@ -301,6 +301,33 @@ above) — that's now the normal way to run both locally too. 4 new
 tests; 242/242 passing. Live-verified via a fresh screenshot: exactly 6
 machines, every timestamp reading e.g. "26 Aug 2026, 12:23:54 IST".
 
+**New (2026-08-26): real SMTP verified + Critical Faults Digest.** User
+added real SMTP creds to `.env` — live send to `support@refresha.in`
+confirmed working (the `services.notification_service: Email sent to
+...` log line only appears after a real `smtplib` send, not the
+console-fallback text). Closes the one gap that's existed since Phase 4.
+
+Then built `services/fault_digest.py` per explicit request: a SECOND
+notification type distinct from the existing per-incident instant
+alert — one email listing **every** currently-Critical machine as a
+table (not just the newly-detected one), always tabular with fault
+details (Machine/Equipment ID/Code/Fault/Health/Since/Duration).
+`NotificationService` gained optional `html_body` support
+(`multipart/alternative` — plain-text table fallback + real HTML
+`<table>`) rather than a separate ad hoc email path; the existing
+single-incident alerts are UNCHANGED (still plain key:value text, one
+machine per email — this was a deliberate scope decision, not an
+oversight — ask the user if they also want those converted to tables).
+Recipients reuse `AlertEngine.get_recipients(session,
+equipment_id=None, severity="Critical")`, same audience as everything
+else Critical. New CLI: `python -m services.send_fault_digest`. Also
+refactored the IST-formatting helper out of `backend/templating.py`
+into `orders/mapping.py` (`format_ist()`) so the dashboard's `ist`
+filter and the digest's tables share one implementation. 19 new/updated
+tests; 255/255 passing. Live-verified against the 3 real active OFFLINE
+incidents (Warehouse, REFRESHA 2, REFRESH-1): sent successfully, HTML
+table confirmed via screenshot.
+
 ## Architecture (one paragraph)
 
 `monitoring/lightweight_client.py` (plain httpx) handles ALL steady-state

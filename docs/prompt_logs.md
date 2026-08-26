@@ -210,3 +210,15 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 > Remove demo database from equipment monitoring dashboard. And show the time in ITC instead of UTC on this dashboard
 
 *("ITC" interpreted as IST — India Standard Time — consistent with the session's established IST theme for order data; flagged that interpretation rather than silently guessing.)*
+
+**38.**
+> how to find email app password for smtp server
+
+**39.**
+> what's smtp host
+
+**40.**
+> i have added smtp credentials in .env file. Now, run a test by creating a demo malfunction machine and send an alert to admin (support@refresha.in)
+
+**41.**
+> Send email notifying the equipment with critical faults. Always send machine fault status in tabular format specifying the fault details as well

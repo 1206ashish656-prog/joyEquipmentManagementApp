@@ -108,3 +108,56 @@ def test_password_never_appears_in_logs(caplog):
 def test_send_email_with_no_recipients_returns_false():
     service = NotificationService(replace(_base_settings(), smtp_host=""))
     assert service.send_email([], "Subject", "Body") is False
+
+
+def test_email_channel_sends_multipart_when_html_body_given():
+    """services/fault_digest.py's tabular reports need a real HTML part,
+    not just a plain-text body with literal <table> tags in it."""
+    settings = replace(
+        _base_settings(),
+        smtp_host="smtp.example.com", smtp_port=587, smtp_username="bot@example.com",
+        smtp_password="supersecret", smtp_from_email="bot@example.com", smtp_use_tls=True,
+    )
+    channel = EmailNotificationChannel(settings)
+
+    mock_smtp_instance = MagicMock()
+    mock_smtp_ctx = MagicMock()
+    mock_smtp_ctx.__enter__.return_value = mock_smtp_instance
+    mock_smtp_ctx.__exit__.return_value = False
+
+    with patch("services.notification_service.smtplib.SMTP", return_value=mock_smtp_ctx):
+        from services.notification_service import Notification
+
+        ok = channel.send(Notification(
+            to=["ops@example.com"], subject="Critical Faults Report",
+            body="plain text fallback", html_body="<table><tr><td>NEXUS</td></tr></table>",
+        ))
+
+    assert ok is True
+    sent_msg = mock_smtp_instance.send_message.call_args[0][0]
+    assert sent_msg.is_multipart()
+    html_part = next(part for part in sent_msg.walk() if part.get_content_type() == "text/html")
+    assert "<table>" in html_part.get_content()
+
+
+def test_email_channel_without_html_body_is_not_multipart():
+    """No regression for the existing single-incident alerts, which
+    never pass html_body."""
+    settings = replace(
+        _base_settings(),
+        smtp_host="smtp.example.com", smtp_from_email="bot@example.com",
+    )
+    channel = EmailNotificationChannel(settings)
+
+    mock_smtp_instance = MagicMock()
+    mock_smtp_ctx = MagicMock()
+    mock_smtp_ctx.__enter__.return_value = mock_smtp_instance
+    mock_smtp_ctx.__exit__.return_value = False
+
+    with patch("services.notification_service.smtplib.SMTP", return_value=mock_smtp_ctx):
+        from services.notification_service import Notification
+
+        channel.send(Notification(to=["ops@example.com"], subject="Test", body="Body text"))
+
+    sent_msg = mock_smtp_instance.send_message.call_args[0][0]
+    assert sent_msg.is_multipart() is False

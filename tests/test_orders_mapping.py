@@ -9,9 +9,10 @@ query the target correctly, it's just no longer what gets reported.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from decimal import Decimal
 
-from orders.mapping import map_api_row_to_order
+from orders.mapping import format_ist, map_api_row_to_order
 
 
 def _raw_row(**overrides):
@@ -96,3 +97,31 @@ def test_raw_preserved_for_audit():
     raw = _raw_row()
     order = map_api_row_to_order(raw)
     assert order.raw is raw
+
+
+# --- format_ist() -- shared display helper (backend/templating.py's
+# `ist` Jinja filter and services/fault_digest.py's email tables both
+# use this same implementation) ---
+
+def test_format_ist_converts_utc_to_ist():
+    # 2026-08-25 18:30:00 UTC = 2026-08-26 00:00:00 IST (UTC+5:30).
+    value = datetime(2026, 8, 25, 18, 30, 0, tzinfo=timezone.utc)
+    assert format_ist(value) == "26 Aug 2026, 00:00:00 IST"
+
+
+def test_format_ist_handles_none():
+    assert format_ist(None) == "—"
+
+
+def test_format_ist_assumes_naive_datetime_is_utc():
+    # SQLite can round-trip a tz-aware column back as naive -- must be
+    # treated as UTC (the only thing db/models.py's _utcnow() ever
+    # produces), not left ambiguous or misinterpreted as local time.
+    naive = datetime(2026, 8, 25, 18, 30, 0)
+    aware = datetime(2026, 8, 25, 18, 30, 0, tzinfo=timezone.utc)
+    assert format_ist(naive) == format_ist(aware)
+
+
+def test_format_ist_custom_format():
+    value = datetime(2026, 8, 25, 18, 30, 0, tzinfo=timezone.utc)
+    assert format_ist(value, fmt="%Y-%m-%d") == "2026-08-26"

@@ -495,11 +495,43 @@ now unions in every active `AlertRecipient` email whenever severity is
 Critical (same trigger as the admin-always rule), de-duplicated with
 everyone else before sending.
 
-**The one real remaining gap**: no SMTP credentials are configured here
-(`SMTP_HOST` is empty in `.env`), so every alert — real incidents
-included — has only ever gone through the console-fallback channel
-(logged, not actually delivered to an inbox). Provide real SMTP
-credentials in `.env` to turn this on; nothing else needs to change.
+**Update 2026-08-26: real SMTP is now configured and verified** — a live
+send to `support@refresha.in` succeeded (confirmed via the
+`services.notification_service: Email sent to ...` log line, which only
+appears after `smtplib` completes a real connect/login/send, not the
+`[console-channel — no SMTP configured]` fallback). The email-alerting
+system was fully built and wired from Phase 4 onward; this closed the
+one remaining real gap.
+
+## Critical Faults Digest (`services/fault_digest.py`)
+
+A second, distinct kind of email from the per-incident instant alerts
+above: **one email listing every machine currently in a Critical
+(Malfunction/Offline) active incident**, always as a table with fault
+details — not "as soon as detected" (that's the instant alert's job),
+but "what's wrong right now, all in one place." Per explicit request,
+the table is genuinely tabular in a real inbox: `NotificationService`
+gained an optional `html_body` (multipart/alternative — the plain-text
+table is the fallback for a client that can't render HTML), and
+`services/fault_digest.py` builds both from the same row data so they
+can't drift apart. Columns: Machine, Equipment ID, Equipment Code,
+Fault, Health, Since (IST), Duration.
+
+Recipients reuse `AlertEngine.get_recipients(session, equipment_id=None,
+severity="Critical")` — the same admins-always + `AlertRecipient`-always
++ subscribed-to-all-machines audience every other Critical notification
+already uses, not a second recipient system. Sends nothing (and says so)
+when no machine is currently Critical — an empty "all clear" digest
+would just train people to ignore these emails.
+
+```bash
+python -m services.send_fault_digest
+```
+
+Live-verified 2026-08-26 against the 3 real active OFFLINE incidents
+(Warehouse, REFRESHA 2, REFRESH-1): sent successfully to
+`demo@example.com`/`support@refresha.in`, with a rendered HTML table
+confirmed by screenshot.
 
 ## Dashboard display: IST timestamps, no demo data
 

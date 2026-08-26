@@ -229,6 +229,38 @@ the JSON `/api/monitoring/status` API are unchanged (still UTC).
 processes, confirmed the dashboard shows exactly 6 machines with every
 timestamp reading e.g. "26 Aug 2026, 12:23:54 IST".
 
+**Follow-up (2026-08-26): real SMTP verified, then Critical Faults
+Digest.** The user added real SMTP credentials to `.env`; a live send
+test to `support@refresha.in` succeeded — confirmed via the
+`services.notification_service: Email sent to ...` log line, which only
+logs after `smtplib` actually completes connect/login/send (not the
+`[console-channel]` fallback text). This closes the one real gap that's
+existed since Phase 4; the alerting system itself required no changes.
+
+Then, per explicit request — "send email notifying the equipment with
+critical faults... always... tabular format specifying the fault
+details" — added a second, distinct notification: `services/fault_digest.py`,
+one email listing **every** currently-Critical machine as a table
+(Machine, Equipment ID, Equipment Code, Fault, Health, Since (IST),
+Duration), not the existing per-incident instant alert (kept unchanged,
+one machine per email, fired once on detection). Refactored
+`NotificationService`/`EmailNotificationChannel` to support an optional
+`html_body` (proper `multipart/alternative` — plain-text table as
+fallback, real `<table>` for HTML-rendering clients) rather than
+building yet another ad hoc email path. Recipients reuse
+`AlertEngine.get_recipients(session, equipment_id=None,
+severity="Critical")` — the same audience every other Critical
+notification already uses. New CLI: `python -m services.send_fault_digest`.
+Refactored the IST formatting helper out of `backend/templating.py` and
+into `orders/mapping.py` (`format_ist()`) so this module and the
+dashboard's `ist` Jinja filter share one implementation instead of two.
+
+19 new/updated tests (digest content incl. HTML-escaping and duration
+formatting, recipient resolution, multipart-vs-plain-text email
+construction). 255/255 passing overall. Live-verified against the 3
+real active OFFLINE incidents (Warehouse, REFRESHA 2, REFRESH-1): sent
+successfully, HTML table rendering confirmed via screenshot.
+
 ## [2.0.0] — 2026-08-24
 
 Everything built on top of the original equipment-monitoring app (1.0.0):
