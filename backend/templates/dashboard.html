@@ -9,8 +9,8 @@
   <table class="kv">
     <tr><td>Monitoring Status</td><td>{{ monitoring.worker_status }}</td></tr>
     <tr><td>Target Session</td><td>{{ monitoring.target_session }}</td></tr>
-    <tr><td>Last Poll</td><td>{{ monitoring.last_run.completed_at if monitoring.last_run else "—" }}</td></tr>
-    <tr><td>Next Poll (est.)</td><td>{{ monitoring.next_poll_estimate or "—" }}</td></tr>
+    <tr><td>Last Poll</td><td>{{ monitoring.last_run.completed_at | ist if monitoring.last_run else "—" }}</td></tr>
+    <tr><td>Next Poll (est.)</td><td>{{ monitoring.next_poll_estimate | ist }}</td></tr>
     <tr><td>Polling Interval</td><td>{{ monitoring.poll_interval_seconds }}s</td></tr>
     {% if monitoring.last_run %}
     <tr><td>Machines Retrieved (last run)</td><td>{{ monitoring.last_run.records_found }}</td></tr>
@@ -45,7 +45,7 @@
         <td><span class="badge {{ row.health_state | health_css_class }}">{{ row.health_state | health_emoji }} {{ row.health_state.value }}</span></td>
         <td>{{ row.current.network_status if row.current else "—" }}</td>
         <td>{{ row.current.fault_type if row.current else "—" }}</td>
-        <td>{{ row.current.last_seen_at if row.current else "—" }}</td>
+        <td>{{ row.current.last_seen_at | ist if row.current else "—" }}</td>
       </tr>
       {% else %}
       <tr><td colspan="7">No equipment observed yet.</td></tr>

@@ -200,3 +200,13 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 > This is the first time I am deploying any application on cloud. So, help me understand the deployment process
 
 **35a.** `[choice]` Merge into one worker service (Recommended) *(answer to "How should we handle monitoring-worker and orders-worker needing the same session file across two services that can't share a volume?")*
+
+**36.**
+> I am exploring cloudflare for cloud deployment. Provide guidance to deploy on this cloud service provier
+
+*(A clarifying AskUserQuestion on this was rejected — the user redirected to the next request below before answering. Cloudflare deployment guidance remains an open thread.)*
+
+**37.**
+> Remove demo database from equipment monitoring dashboard. And show the time in ITC instead of UTC on this dashboard
+
+*("ITC" interpreted as IST — India Standard Time — consistent with the session's established IST theme for order data; flagged that interpretation rather than silently guessing.)*

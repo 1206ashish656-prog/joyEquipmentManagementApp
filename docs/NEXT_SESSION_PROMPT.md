@@ -273,6 +273,34 @@ Railway deploy. Deployment execution itself (account creation, clicking
 through Railway's UI, entering billing) is the user's own next step —
 not something done in this session.
 
+**Open thread: Cloudflare deployment.** The user asked about deploying
+on Cloudflare instead. Checked live (not from stale training knowledge):
+Cloudflare Containers sleep after 10 min idle by default with no
+runtime guarantee, no native persistent disk (R2-via-FUSE or Durable
+Objects instead), and no first-party managed Postgres — a real
+architecture mismatch against this app's 2 always-on infinite-loop
+background workers. Presented this + 2 honest paths (Cloudflare in
+front of Railway for DNS/CDN only, vs. a full re-architecture for
+Cloudflare's serverless model) via AskUserQuestion — **the user rejected
+that question and redirected to the next request instead, so this is
+still open, not decided.** Don't assume either path; ask again or wait
+for the user to bring it back up.
+
+**New (2026-08-26): remove demo equipment, IST timestamps on the
+dashboard.** Deleted the 2 `[DEMO]`-labeled equipment rows from
+`data/demo.db` (no seed script existed — confirmed via repo-wide grep —
+so this was a one-time cleanup, not something that will reappear). New
+`ist` Jinja filter (`backend/templating.py`, reuses `orders/mapping.py`'s
+`IST_TZ`) applied to every timestamp on `dashboard.html`/
+`equipment_detail.html`/`faults.html`/`fault_detail.html` — display-only,
+stored values and the JSON `/api/monitoring/status` API stay UTC. Also
+replaced this session's own separate `monitoring.worker`/
+`orders.realtime_worker` background processes with
+`monitoring.combined_worker --loop` (see the cloud-deployment entry
+above) — that's now the normal way to run both locally too. 4 new
+tests; 242/242 passing. Live-verified via a fresh screenshot: exactly 6
+machines, every timestamp reading e.g. "26 Aug 2026, 12:23:54 IST".
+
 ## Architecture (one paragraph)
 
 `monitoring/lightweight_client.py` (plain httpx) handles ALL steady-state

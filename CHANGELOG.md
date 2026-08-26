@@ -213,6 +213,22 @@ code path it runs was verified directly. Deployment execution itself
 user's own next step, not something this session could do on their
 behalf.
 
+**Follow-up (2026-08-26): remove demo equipment, display IST on the
+dashboard.** The 2 synthetic `[DEMO]`-labeled equipment rows (added
+earlier for screenshot/badge coverage, never a seed script — just a
+one-off DB write) were deleted from `data/demo.db`; Fleet Overview now
+shows only the 6 real machines. Every timestamp on the equipment
+monitoring pages was being displayed raw, i.e. in UTC (what
+`db/models.py`'s `_utcnow()` stores) — per explicit request, these now
+render in IST via a new `ist` Jinja filter (`backend/templating.py`)
+that reuses `orders/mapping.py`'s existing `IST_TZ` rather than a second
+timezone constant, applied across `dashboard.html`, `equipment_detail.html`,
+`faults.html`, and `fault_detail.html`. Display-only — stored values and
+the JSON `/api/monitoring/status` API are unchanged (still UTC).
+4 new tests. 242/242 passing overall. Live-verified: restarted both
+processes, confirmed the dashboard shows exactly 6 machines with every
+timestamp reading e.g. "26 Aug 2026, 12:23:54 IST".
+
 ## [2.0.0] — 2026-08-24
 
 Everything built on top of the original equipment-monitoring app (1.0.0):

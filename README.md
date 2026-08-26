@@ -501,6 +501,28 @@ included — has only ever gone through the console-fallback channel
 (logged, not actually delivered to an inbox). Provide real SMTP
 credentials in `.env` to turn this on; nothing else needs to change.
 
+## Dashboard display: IST timestamps, no demo data
+
+Two small but real fixes (2026-08-26): the two synthetic
+`[DEMO]`-labeled equipment rows (`[DEMO] Faulty Unit`,
+`[DEMO] Low Stock Unit` — added earlier for screenshot/badge coverage,
+never part of the schema or a seed script) were deleted from the demo
+database; the Fleet Overview now shows only the 6 real machines.
+
+Every timestamp on the equipment monitoring pages (Last Poll, Next
+Poll, Last Updated, incident Detected/Resolved, snapshot history) was
+being rendered as a raw Python `datetime` — technically correct but
+silently in UTC, since that's what `db/models.py`'s `_utcnow()` stores.
+Per explicit request, these now display in **IST**, via a new `ist`
+Jinja filter (`backend/templating.py`) that reuses the same `IST_TZ`
+already established for Order Summary (`orders/mapping.py`) rather than
+defining a second timezone constant — one filter, applied at every
+render site in `dashboard.html`/`equipment_detail.html`/`faults.html`/
+`fault_detail.html`. The underlying stored values are unchanged (still
+UTC in the DB, and the JSON `/api/monitoring/status` endpoint still
+reports UTC ISO timestamps for programmatic consumers) — this is a
+display-layer change only.
+
 ## Architecture (current pieces)
 
 ```

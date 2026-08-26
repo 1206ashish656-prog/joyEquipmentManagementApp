@@ -11,7 +11,7 @@
       <td><a href="/faults/{{ row.incident.id }}">{{ row.equipment.name }} ({{ row.equipment.external_id }})</a></td>
       <td>{{ row.incident.fault_type }}</td>
       <td>{{ row.incident.severity }}</td>
-      <td>{{ row.incident.started_at }}</td>
+      <td>{{ row.incident.started_at | ist }}</td>
       <td>{{ row.duration }}</td>
     </tr>
     {% else %}

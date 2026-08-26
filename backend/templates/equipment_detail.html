@@ -27,7 +27,7 @@
       <tr><td>Fault Type</td><td>{{ current.fault_type }}</td></tr>
       <tr><td>Material Shortage</td><td>{{ current.material_shortage_status }}</td></tr>
       <tr><td>Remaining Oranges</td><td>{{ current.remaining_oranges or "—" }}</td></tr>
-      <tr><td>Last Updated</td><td>{{ current.last_seen_at }}</td></tr>
+      <tr><td>Last Updated</td><td>{{ current.last_seen_at | ist }}</td></tr>
     </table>
     {% else %}
     <p>No observations recorded yet.</p>
@@ -38,12 +38,12 @@
 <section>
   <h2>Incident Summary</h2>
   <table class="kv">
-    <tr><td>First Fault Detected</td><td>{{ first_fault.started_at if first_fault else "—" }}</td></tr>
+    <tr><td>First Fault Detected</td><td>{{ first_fault.started_at | ist if first_fault else "—" }}</td></tr>
     <tr>
       <td>Current Incident</td>
       <td>
         {% if active_incident %}
-          <a href="/faults/{{ active_incident.id }}">{{ active_incident.fault_type }} (since {{ active_incident.started_at }})</a>
+          <a href="/faults/{{ active_incident.id }}">{{ active_incident.fault_type }} (since {{ active_incident.started_at | ist }})</a>
         {% else %}
           None — healthy
         {% endif %}
@@ -59,7 +59,7 @@
     <tbody>
       {% for s in snapshots %}
       <tr>
-        <td>{{ s.observed_at }}</td>
+        <td>{{ s.observed_at | ist }}</td>
         <td><span class="badge {{ s.health_state | health_css_class }}">{{ s.health_state | health_emoji }} {{ s.health_state.value }}</span></td>
         <td>{{ s.status }}</td>
         <td>{{ s.network_status }}</td>
@@ -79,8 +79,8 @@
     <tbody>
       {% for i in incidents %}
       <tr>
-        <td><a href="/faults/{{ i.id }}">{{ i.started_at }}</a></td>
-        <td>{{ i.resolved_at or "—" }}</td>
+        <td><a href="/faults/{{ i.id }}">{{ i.started_at | ist }}</a></td>
+        <td>{{ i.resolved_at | ist }}</td>
         <td>{{ i.fault_type }}</td>
         <td>{{ i.severity }}</td>
         <td>{{ i.status.value }}</td>
