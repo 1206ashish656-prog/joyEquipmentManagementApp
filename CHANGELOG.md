@@ -7,7 +7,20 @@ the verbatim request behind each of these, and
 [`docs/NEXT_SESSION_PROMPT.md`](docs/NEXT_SESSION_PROMPT.md) for the
 living, more granular version of "pending work."
 
-## [Unreleased] — since 2.0.0
+## [Unreleased] — since 3.0.0
+
+Nothing yet.
+
+## [3.0.0] — 2026-08-26
+
+**Version 3.0: the email alerting system is fully active end-to-end** —
+real SMTP delivery (not just the console-fallback channel), a flat
+admin-managed recipient list alongside the existing admin/subscription
+model, and a second tabular "Critical Faults Digest" notification. Also
+in this release: Cost Management, Staff & Leave Management, cloud
+deployment infrastructure, and an IST-localized dashboard. Everything
+below was live-verified against the real target site and/or a real
+inbox, not just unit tests. 255/255 automated tests passing.
 
 Two more admin-only tools, both explicitly restricted to the `admin`
 role (`operations`/`venue_partner` get `403`, same as `/users`):
@@ -260,6 +273,28 @@ formatting, recipient resolution, multipart-vs-plain-text email
 construction). 255/255 passing overall. Live-verified against the 3
 real active OFFLINE incidents (Warehouse, REFRESHA 2, REFRESH-1): sent
 successfully, HTML table rendering confirmed via screenshot.
+
+**Follow-up (same day): live end-to-end HEALTHY→MALFUNCTION scenario
+test.** Per explicit request — added a demo machine as HEALTHY through
+the exact `StateManager.process_observation()` path the live poller
+uses, waited ~1 minute, then transitioned it to MALFUNCTION. Confirmed
+`incident_opened=True` and a real (non-console-fallback) email sent,
+screenshotting both states. Cleaned up the demo equipment afterward.
+
+Two real, unrelated issues surfaced and resolved along the way:
+- A one-off script run without the `DATABASE_URL="sqlite:///data/demo.db"`
+  prefix every other process in this project uses fell through to the
+  unused Postgres config path in `.env` and failed to authenticate —
+  initially misdiagnosed as a corrupted credential; corrected once the
+  actual cause (a missing env var on that one invocation, not a broken
+  password) was found. No credential was actually broken or reset.
+- `monitoring.combined_worker` crashed mid-session with `sqlite3.
+  OperationalError: database is locked` writing to `order_summary` —
+  concurrent SQLite access between the worker and the dashboard process.
+  Restarted successfully; the underlying concurrency risk (SQLite under
+  concurrent writers, especially on Windows) is real and noted as a
+  Phase 6 candidate (WAL mode + busy_timeout, or a real Postgres
+  instance) rather than silently left for it to recur.
 
 ## [2.0.0] — 2026-08-24
 

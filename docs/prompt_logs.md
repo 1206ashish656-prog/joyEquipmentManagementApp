@@ -222,3 +222,11 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 
 **41.**
 > Send email notifying the equipment with critical faults. Always send machine fault status in tabular format specifying the fault details as well
+
+**42.**
+> Now let's test a simple scenario where you add a demo healthy machine in the equipment dashboard. After 1 minute, change the status of this demo machine to malfunction
+
+**42a.** `[choice]` Reset Postgres to a new password *(answer to an AskUserQuestion raised mid-task over an apparent DB_PASSWORD mismatch — later corrected: the mismatch was a misdiagnosis, no Postgres credential was ever actually broken or reset; see CHANGELOG.md's 3.0.0 entry.)*
+
+**43.**
+> Commit the application until now and add comment specifying version 3 completed with email notification active

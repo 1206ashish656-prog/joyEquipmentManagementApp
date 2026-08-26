@@ -14,7 +14,8 @@ converts raw fields into a canonical health state via configurable rules,
 detects state changes exactly once per transition (never once per poll),
 stores history, alerts subscribers by email, and serves a live web
 dashboard. Repo: `c:\Users\hp\Desktop\self_projects\joyHealthMonitorinApp`
-(git initialized, latest commit `4a586d0`).
+(git initialized; see `CHANGELOG.md` for the current version and
+`git log` for the latest commit).
 
 **Read these files first — they carry all the detail this prompt
 intentionally omits:**
@@ -33,7 +34,7 @@ screenshots, tool appendix) also exists:
 | 1 — Target discovery | Done, confirmed live |
 | 2 — Monitoring POC | Done, confirmed live |
 | 3 — DB + state engine | Built, live-verified — **SQLite only, never run on real Postgres** |
-| 4 — Alerting | Built, live-verified firing on real incidents — **no real email ever sent** (no SMTP creds) |
+| 4 — Alerting | Built, live-verified firing on real incidents — **real SMTP delivery confirmed (2026-08-26)**, plus a flat recipient list and a tabular Critical Faults Digest |
 | 5 — Web dashboard | Built, live-verified with real HTTP traffic |
 | 6 — Production hardening | **Not started** |
 
