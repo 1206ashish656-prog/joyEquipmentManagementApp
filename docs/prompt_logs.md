@@ -297,3 +297,16 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 
 **55.**
 > The order summary is not updated. Ensure the order data automatically backfills as soon as the application backs up
+
+**56.**
+> create a temporary tunnel using cloudflare and open the app in incognito window
+
+**56a.** `[choice]` Just open it locally in incognito *(answer to an AskUserQuestion after the Cloudflare quick tunnel repeatedly failed with edge-routing 404s despite cloudflared itself reporting zero errors)*
+
+**57.**
+> the equipment health dashboard is not updating and shows last error as target unavailable
+
+**57a.** `[choice]` I have postgres in my local machine, try using it instead of sqlite to prevent concurrency issue or database locking problems. Keep the current behavior as it is and commit it as working version with sqllite db *(free-text answer to an AskUserQuestion about whether to change monitoring/combined_worker.py's deliberate crash-coupling design)*
+
+**58.**
+> database in postgres is created now. verify and alter the framework to use postgres instead of sqllite

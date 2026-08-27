@@ -9,6 +9,58 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Migrated the local dev/demo database from SQLite to real Postgres**
+(2026-08-27), fixing the recurring `database is locked` crash at its
+actual root rather than mitigating it further. The WAL-mode fix
+(previous entry) reduced how often it happened but didn't eliminate
+it — watched it recur live during this session, immediately after a
+restart, with equipment monitoring going dark again as a direct
+consequence of `monitoring/combined_worker.py`'s own deliberate design
+("either loop crashing is fatal for the whole process... never silently
+keep only half working"). Per explicit user decision: **keep that
+crash-coupling design as-is** (still deliberate, still documented) and
+instead remove the actual cause — SQLite's single-writer model — by
+switching to Postgres, which has proper concurrent-write support.
+
+New `db/migrate_sqlite_to_postgres.py`: copies every row from
+`data/demo.db` into the Postgres database configured in `.env`
+(`DB_HOST`/`DB_NAME`/`DB_USER`/`DB_PASSWORD`), preserving primary keys,
+then resets Postgres's sequences past the migrated max id per table so
+new inserts from the running app don't collide. Refuses to run against
+a Postgres database that already has any data unless `--force`, since
+re-running it isn't idempotent (would insert duplicates) — this is a
+one-time carry-over tool, not a sync tool. Tables are copied in
+`Base.metadata.sorted_tables` order (topologically sorted by FK
+dependency), so referenced tables are always populated before whatever
+references them. 4 new tests, using a second SQLite file as a stand-in
+Postgres target (this project's tests deliberately never require a real
+Postgres instance to run) — the Postgres-only sequence-reset step is
+skipped when the target dialect isn't `postgresql`, keeping the function
+itself fully testable. 306/306 passing overall.
+
+Live-verified end to end, not just migrated and hoped: created the
+`equipment_monitor` role/database (user's own local Postgres, their
+existing install), verified real connectivity and schema creation
+(`db.init_db`, all 16 tables), migrated all 19,252 existing rows
+(equipment history, order summaries, inventory, users, fault incidents,
+alert recipients — everything accumulated over this session's testing,
+not thrown away), confirmed a fresh insert doesn't collide with a
+migrated id (sequence reset works), restarted both processes with
+*no* `DATABASE_URL` override (so `Settings.database_url` naturally
+composes the Postgres URL from `.env`'s `DB_*` fields), watched 10
+consecutive poll cycles complete cleanly with zero lock errors (versus
+the crash that had just recurred minutes earlier under SQLite), and
+confirmed the demo admin login and full dashboard render correctly
+against the migrated data via a real screenshot.
+
+`README.md`'s SQLite quick-start section and `docs/OPERATIONS_RUNBOOK.md`
+updated: the runbook's commands no longer carry a `DATABASE_URL=sqlite:
+///...` override (that would now point at the wrong, stale database),
+and the SQLite path in README is kept as a genuinely still-valid
+*quicker* option for a fresh setup, explicitly flagged with the same
+concurrency caveat rather than silently left looking equivalent to
+the now-primary Postgres path.
+
 **Fixed: Order Summary going stale whenever the app restarts across a
 day boundary.** User reported Order Summary wasn't updating; root cause
 found directly, not assumed: `orders/realtime_worker.py`'s day-rollover

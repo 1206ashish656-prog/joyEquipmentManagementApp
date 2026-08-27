@@ -218,6 +218,16 @@ connectivity-only checks (no DB) — see their own docs.
 
 ### Local demo without Docker/Postgres
 
+**Note (2026-08-27):** this project's own local dev/demo environment now
+runs on a real local Postgres install instead of SQLite (see
+`CHANGELOG.md`'s 2026-08-27 entry) — SQLite's single-writer model was
+causing intermittent `database is locked` crashes that took equipment
+monitoring down along with the unrelated orders loop. The instructions
+below are kept as a genuinely valid, still-supported *quicker* path for
+anyone setting this project up fresh without wanting to install Postgres
+first — just be aware it carries that same concurrency risk under real
+sustained load (a single quick demo run is fine).
+
 `DATABASE_URL` overrides the `DB_*` settings entirely — point it at
 SQLite for a quick local run:
 

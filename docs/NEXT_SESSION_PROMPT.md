@@ -33,7 +33,7 @@ screenshots, tool appendix) also exists:
 |---|---|
 | 1 — Target discovery | Done, confirmed live |
 | 2 — Monitoring POC | Done, confirmed live |
-| 3 — DB + state engine | Built, live-verified — **SQLite only, never run on real Postgres** |
+| 3 — DB + state engine | Built, live-verified — **real local Postgres, since 2026-08-27** (SQLite is still supported and used by the automated tests, but the local dev/demo environment itself migrated off it to fix a recurring `database is locked` crash — see CHANGELOG.md) |
 | 4 — Alerting | Built, live-verified firing on real incidents — **real SMTP delivery confirmed (2026-08-26)**, plus a flat recipient list and a tabular Critical Faults Digest |
 | 5 — Web dashboard | Built, live-verified with real HTTP traffic |
 | 6 — Production hardening | **Not started** |
