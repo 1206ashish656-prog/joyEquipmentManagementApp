@@ -9,6 +9,48 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Fixed: Order Summary going stale whenever the app restarts across a
+day boundary.** User reported Order Summary wasn't updating; root cause
+found directly, not assumed: `orders/realtime_worker.py`'s day-rollover
+handling (`run_cycle`'s "one final refresh of the day that just ended")
+only closes a gap that happens *while the process is running* — it
+tracks `last_seen_date` in memory across its own loop iterations. A
+freshly started process has no such memory, so if the app is down when
+the IST calendar date rolls over, the day it was last actively updating
+never gets its closing refresh and stays frozen on a partial snapshot —
+confirmed live: `2026-08-26` was frozen at 326 raw orders from 18:01
+UTC, the exact moment the app went down, with `orders/backfill.py`'s
+normal caching unable to help either (already `SUCCESS` reads as
+"already done").
+
+Fix: new `reconcile_after_downtime()`, run once at startup before the
+continuous loop begins (`run_once`/`run_loop`, both `orders.
+realtime_worker` standalone and via `monitoring.combined_worker`).
+Compares the last date `OrderSummaryRun` actually has against today
+(IST): if they match or there's no history yet, nothing to do; if
+downtime crossed a day boundary, that last-active day gets force-
+refreshed directly, and any fully-elapsed days in between that were
+never touched at all get handed to the existing `orders.backfill`
+machinery (normal skip-if-cached/fetch-if-missing semantics) — so a
+short restart self-heals in one extra request, and a multi-day outage
+self-heals in one pass covering the whole gap, automatically, with no
+manual command needed.
+
+5 new tests (first-ever-run no-op, same-day-restart no-op, the core
+overnight-gap force-refresh, a multi-day gap correctly split between
+force-refresh + backfill, and the exactly-one-day-gap boundary case).
+302/302 passing overall. Live-verified against the real demo DB: found
+`2026-08-26` still frozen at 326 orders from before an earlier restart
+in this session — the automatic fix couldn't retroactively catch this
+*specific* gap (this morning's restart, which predates the fix, had
+already advanced the DB's "last known date" to today before the fix
+was ever loaded, so the precondition it checks no longer held) — closed
+it with one manual `orders.backfill --date 2026-08-26 --force` (326 →
+333 orders, matching the target's real count), confirmed via a fresh
+app restart afterward that the reconciliation step runs cleanly with
+nothing further to do. Going forward, any future restart across a day
+boundary self-heals without that manual step.
+
 **Inventory Management** (new, `/inventory`, admin OR operations — the
 same role pair `require_operations` already gates equipment monitoring
 with) — per explicit request: track 10 fixed consumables (Oranges,

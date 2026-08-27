@@ -19,6 +19,13 @@ SUCCESS row from an earlier, now-stale, cycle. orders/store.py's
 save_day() is already idempotent (delete-then-reinsert), so repeated
 calls for the same date are safe — this is the only piece that's new.
 
+Also reconciles automatically at startup (reconcile_after_downtime()):
+if the app was down when the IST date rolled over, the day it was last
+updating gets a forced final refresh, and any fully-elapsed days in
+between that were never touched at all get backfilled — see that
+function's docstring for why run_cycle's own rollover logic alone isn't
+enough for this.
+
 Run:
     python -m orders.realtime_worker --loop                  # every 5 min, forever
     python -m orders.realtime_worker --loop --interval 120    # every 2 min
@@ -29,12 +36,16 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import func, select
 
 from db import base as db_base
+from db.models import OrderSummaryRun
 from monitoring.config import load_settings
 from monitoring.models import MonitoringError
 
+from .backfill import run_backfill
 from .client import OrdersClient
 from .mapping import IST_TZ
 from .store import save_day
@@ -52,6 +63,14 @@ def today_ist(now: datetime | None = None) -> str:
     they happen to run."""
     now = now or datetime.now(timezone.utc)
     return now.astimezone(IST_TZ).strftime("%Y-%m-%d")
+
+
+def _day_after(date_str: str) -> str:
+    return (datetime.strptime(date_str, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+
+
+def _day_before(date_str: str) -> str:
+    return (datetime.strptime(date_str, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
 
 
 async def refresh_date(client: OrdersClient, date: str) -> bool:
@@ -78,12 +97,53 @@ async def refresh_date(client: OrdersClient, date: str) -> bool:
     return True
 
 
+async def reconcile_after_downtime(client: OrdersClient, today_fn=today_ist, backfill_fn=run_backfill) -> None:
+    """Runs once at startup, before any continuous cycles begin, to close
+    whatever gap downtime left in Order Summary.
+
+    run_cycle()'s own day-rollover handling only closes a gap that
+    happens WHILE the process is running (it carries last_seen_date
+    between its own iterations in memory) — a freshly started process
+    has no such memory. If the app was down when the IST calendar date
+    rolled over, the day it was last actively updating never gets its
+    final "day-end" refresh: OrderSummaryRun already has a SUCCESS row
+    for that date from its last live cycle, so it just stays frozen on
+    that partial snapshot — orders/backfill.py's normal cached-date skip
+    would even leave it stale if someone ran a manual backfill
+    afterwards, since "already SUCCESS" reads as "already done."
+    """
+    today = today_fn()
+
+    with db_base.get_session() as db_session:
+        last_known = db_session.execute(select(func.max(OrderSummaryRun.date))).scalar()
+
+    if last_known is None or last_known == today:
+        return  # first-ever run, or restarted the same IST day — nothing to reconcile
+
+    logger.info("Startup reconciliation: last known order data is %s, today is %s", last_known, today)
+
+    # The last active day may have been cut off mid-day — force a fresh
+    # refresh regardless of its existing SUCCESS status (mirrors
+    # run_cycle's own "day that just ended" refresh).
+    await refresh_date(client, last_known)
+
+    # Any fully-elapsed days strictly between last_known and today that
+    # were never touched at all (a longer outage) — normal backfill
+    # semantics apply (skip already-cached, fetch missing).
+    yesterday = _day_before(today)
+    gap_start = _day_after(last_known)
+    if gap_start <= yesterday:
+        logger.info("Backfilling missing days %s through %s", gap_start, yesterday)
+        await backfill_fn(gap_start, yesterday)
+
+
 async def run_once() -> None:
     settings = load_settings()
     db_base.init_engine(settings)
     db_base.create_all()
     client = OrdersClient(settings)
     try:
+        await reconcile_after_downtime(client)
         await refresh_date(client, today_ist())
     finally:
         await client.close()
@@ -124,6 +184,7 @@ async def run_loop(interval_seconds: int) -> None:
 
     last_seen_date: str | None = None
     try:
+        await reconcile_after_downtime(client)
         while True:
             last_seen_date = await run_cycle(client, last_seen_date)
             await asyncio.sleep(interval_seconds)

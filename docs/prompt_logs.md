@@ -288,3 +288,12 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 **52a.** `[choice]` Settable current stock (Recommended) *(answer to an AskUserQuestion on how restocking should work)*
 
 **52b.** `[choice]` Email alert + dashboard warning (Recommended) *(answer to an AskUserQuestion on low-stock alert delivery)*
+
+**53.**
+> kill the application for now
+
+**54.**
+> Back up the application. Also, confirm if its running on cloudflare
+
+**55.**
+> The order summary is not updated. Ensure the order data automatically backfills as soon as the application backs up

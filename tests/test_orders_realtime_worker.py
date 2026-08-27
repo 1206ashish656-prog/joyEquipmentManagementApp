@@ -20,7 +20,7 @@ import db.base as db_base
 from db.models import Base, OrderSummary, OrderSummaryRun, OrderSummaryRunStatus
 from monitoring.models import MonitoringError
 from orders.mapping import OrderRecord
-from orders.realtime_worker import refresh_date, run_cycle, today_ist
+from orders.realtime_worker import reconcile_after_downtime, refresh_date, run_cycle, today_ist
 
 
 @pytest.fixture()
@@ -202,3 +202,86 @@ async def test_run_cycle_reloads_cookies_exactly_once_per_cycle(db):
     assert client.reload_cookies_calls == 1
     await run_cycle(client, "2026-08-24", today_fn=today_fn)
     assert client.reload_cookies_calls == 2
+
+
+# --- reconcile_after_downtime (startup gap-closing) ---
+
+class FakeBackfill:
+    def __init__(self):
+        self.calls: list[tuple[str, str]] = []
+
+    async def __call__(self, start: str, end: str) -> None:
+        self.calls.append((start, end))
+
+
+async def _seed_run(SessionLocal_or_db, date: str, status=OrderSummaryRunStatus.SUCCESS):
+    with db_base.get_session() as session:
+        session.add(OrderSummaryRun(date=date, status=status, raw_orders_fetched=0))
+
+
+@pytest.mark.asyncio
+async def test_reconcile_does_nothing_on_first_ever_run(db):
+    """No OrderSummaryRun history at all -- nothing to reconcile."""
+    client = FakeOrdersClient()
+    backfill = FakeBackfill()
+    await reconcile_after_downtime(client, today_fn=lambda: "2026-08-27", backfill_fn=backfill)
+
+    assert client.fetch_calls == []
+    assert backfill.calls == []
+
+
+@pytest.mark.asyncio
+async def test_reconcile_does_nothing_when_restarted_same_day(db):
+    await _seed_run(db, "2026-08-27")
+    client = FakeOrdersClient()
+    backfill = FakeBackfill()
+    await reconcile_after_downtime(client, today_fn=lambda: "2026-08-27", backfill_fn=backfill)
+
+    assert client.fetch_calls == []
+    assert backfill.calls == []
+
+
+@pytest.mark.asyncio
+async def test_reconcile_force_refreshes_last_active_day_after_overnight_downtime(db):
+    """The actual bug being fixed: app was down when the IST date rolled
+    over, so the last day it was updating (already SUCCESS from its own
+    earlier cycle) is stuck on a partial snapshot -- must get force-
+    refreshed even though it's already "done" as far as backfill.py's
+    caching would normally be concerned."""
+    await _seed_run(db, "2026-08-26")
+    client = FakeOrdersClient()
+    backfill = FakeBackfill()
+    await reconcile_after_downtime(client, today_fn=lambda: "2026-08-27", backfill_fn=backfill)
+
+    assert client.fetch_calls == ["2026-08-26"]  # forced refresh via refresh_date, not the backfill path
+    assert backfill.calls == []  # no gap -- yesterday IS the last known day
+
+
+@pytest.mark.asyncio
+async def test_reconcile_backfills_multi_day_gap(db):
+    """App was down across several IST days -- the last active day gets
+    force-refreshed directly, and the fully-missing days in between get
+    handed to the real backfill machinery (which has its own
+    skip-if-cached/fetch-if-missing logic)."""
+    await _seed_run(db, "2026-08-20")
+    client = FakeOrdersClient()
+    backfill = FakeBackfill()
+    await reconcile_after_downtime(client, today_fn=lambda: "2026-08-27", backfill_fn=backfill)
+
+    assert client.fetch_calls == ["2026-08-20"]
+    assert backfill.calls == [("2026-08-21", "2026-08-26")]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_single_missing_day_gap(db):
+    """last_known=2026-08-25, today=2026-08-27 -- exactly one fully-
+    elapsed day (08-26) was never touched at all; it goes through the
+    normal backfill path as a one-day range, while 08-25 (the day that
+    WAS actively updating) gets the forced refresh_date() call instead."""
+    await _seed_run(db, "2026-08-25")
+    client = FakeOrdersClient()
+    backfill = FakeBackfill()
+    await reconcile_after_downtime(client, today_fn=lambda: "2026-08-27", backfill_fn=backfill)
+
+    assert client.fetch_calls == ["2026-08-25"]
+    assert backfill.calls == [("2026-08-26", "2026-08-26")]

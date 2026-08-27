@@ -95,6 +95,14 @@ kept continuously up to date instead by the background worker
 (`monitoring.combined_worker`, section 1), since a day still in progress
 would otherwise get permanently cached on a partial count.
 
+**Manual backfill is now rarely needed after a restart.** The worker
+automatically closes any gap left by downtime the moment it starts back
+up (as of 2026-08-27) — if it was down when the day rolled over, the
+last day it was tracking gets force-refreshed, and any fully-elapsed
+days in between get backfilled, with no command needed. Use the manual
+commands above for a genuinely large historical gap, or to force a
+re-fetch of a specific date you suspect is wrong for another reason.
+
 ---
 
 ## 3. Adding test data in the equipment dashboard
