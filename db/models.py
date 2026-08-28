@@ -400,6 +400,7 @@ class Staff(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     leaves: Mapped[list["StaffLeave"]] = relationship(back_populates="staff", cascade="all, delete-orphan")
+    advances: Mapped[list["StaffAdvance"]] = relationship(back_populates="staff", cascade="all, delete-orphan")
 
 
 class StaffLeave(Base):
@@ -420,6 +421,27 @@ class StaffLeave(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     staff: Mapped["Staff"] = relationship(back_populates="leaves")
+
+
+class StaffAdvance(Base):
+    """One immutable ledger row per advance payment given to a staff
+    member -- who, how much, when, optional note, who logged it. No
+    repayment/deduction tracking (not requested) -- same
+    log-and-never-edit precedent as StaffLeave/InventoryLogEntry. New
+    table, so create_all() picks it up on any existing database with no
+    migration needed (unlike User.is_super_admin above)."""
+
+    __tablename__ = "staff_advance"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    staff_id: Mapped[int] = mapped_column(ForeignKey("staff.id"), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    date: Mapped[str] = mapped_column(String(10))  # 'YYYY-MM-DD', same convention as CostEntry.date/StaffLeave dates
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    staff: Mapped["Staff"] = relationship(back_populates="advances")
 
 
 # --- Inventory management (admin/operations — see backend/api/inventory.py) ---

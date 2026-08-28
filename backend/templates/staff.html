@@ -43,7 +43,7 @@
 <section>
   <h2>Staff Roster</h2>
   <table class="equipment-table">
-    <thead><tr><th>Name</th><th>Department</th><th>Sub-department</th><th>Employment Start</th><th>Employment End</th><th></th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Department</th><th>Sub-department</th><th>Employment Start</th><th>Employment End</th><th>Total Advances</th><th></th><th></th><th></th></tr></thead>
     <tbody>
       {% for s in staff_list %}
       <tr>
@@ -52,6 +52,7 @@
         <td>{{ s.sub_department or "—" }}</td>
         <td>{{ s.employment_start_date }}</td>
         <td>{{ s.employment_end_date or "— active —" }}</td>
+        <td>₹{{ "%.2f"|format(advance_totals.get(s.id, 0)) }}</td>
         <td><a href="/staff/{{ s.id }}/edit">Edit</a></td>
         <td>
           {% if not s.employment_end_date %}
@@ -61,9 +62,14 @@
           </form>
           {% endif %}
         </td>
+        <td>
+          <form method="post" action="/staff/{{ s.id }}/delete" style="display:inline;" onsubmit="return confirm('Delete {{ s.name }} and all their leave and advance records? This cannot be undone.');">
+            <button type="submit" class="linklike">Delete</button>
+          </form>
+        </td>
       </tr>
       {% else %}
-      <tr><td colspan="7">No staff added yet.</td></tr>
+      <tr><td colspan="9">No staff added yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -112,6 +118,27 @@
     <p class="callout">Add an active staff member first before logging a leave.</p>
     {% endif %}
   </section>
+
+  <section>
+    <h2>Log an Advance Payment</h2>
+    {% if active_staff %}
+    <form method="post" action="/staff/advances" class="stacked-form">
+      <label>Staff
+        <select name="staff_id">
+          {% for s in active_staff %}
+          <option value="{{ s.id }}">{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Amount (₹)<input type="number" step="0.01" min="0" name="amount" required></label>
+      <label>Date<input type="date" name="date" value="{{ today }}" required></label>
+      <label>Note (optional)<input type="text" name="note"></label>
+      <button type="submit">Log Advance</button>
+    </form>
+    {% else %}
+    <p class="callout">Add an active staff member first before logging an advance.</p>
+    {% endif %}
+  </section>
 </div>
 
 <section>
@@ -128,6 +155,25 @@
       </tr>
       {% else %}
       <tr><td colspan="4">No leaves logged yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Recent Advances</h2>
+  <table class="equipment-table">
+    <thead><tr><th>Staff</th><th>Date</th><th>Amount</th><th>Note</th></tr></thead>
+    <tbody>
+      {% for advance, s in recent_advances %}
+      <tr>
+        <td>{{ s.name }}</td>
+        <td>{{ advance.date }}</td>
+        <td>₹{{ "%.2f"|format(advance.amount) }}</td>
+        <td>{{ advance.note or "—" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">No advances logged yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

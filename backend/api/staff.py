@@ -1,21 +1,23 @@
 """
 Staff & Leave Management tab (admin-only): a staff roster (employment
 start/end date), leaves logged by the admin on a staff member's behalf,
-and a monthly leave summary that explicitly highlights anyone with more
-than 2 leave days in the selected month (staff/leave_summary.py).
+a monthly leave summary that explicitly highlights anyone with more
+than 2 leave days in the selected month (staff/leave_summary.py), and
+an advance-payments ledger.
 """
 from __future__ import annotations
 
 from datetime import date as date_cls
+from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.deps import get_db, require_admin
 from backend.templating import templates
-from db.models import Staff, StaffLeave, User
+from db.models import Staff, StaffAdvance, StaffLeave, User
 from staff.leave_summary import summarize_month
 
 router = APIRouter()
@@ -48,6 +50,16 @@ def staff_page(
         .limit(30)
     ).all()
 
+    recent_advances = db.execute(
+        select(StaffAdvance, Staff)
+        .join(Staff, StaffAdvance.staff_id == Staff.id)
+        .order_by(StaffAdvance.date.desc())
+        .limit(30)
+    ).all()
+    advance_totals = dict(
+        db.execute(select(StaffAdvance.staff_id, func.sum(StaffAdvance.amount)).group_by(StaffAdvance.staff_id)).all()
+    )
+
     return templates.TemplateResponse(
         request,
         "staff.html",
@@ -57,6 +69,8 @@ def staff_page(
             "active_staff": [s for s in staff_list if not s.employment_end_date],
             "leave_summary": leave_summary,
             "recent_leaves": recent_leaves,
+            "recent_advances": recent_advances,
+            "advance_totals": advance_totals,
             "year": year,
             "month": month,
             "today": today.isoformat(),
@@ -175,6 +189,49 @@ def add_leave(
             start_date=start_date,
             end_date=end_date,
             reason=reason.strip() or None,
+            created_by_user_id=admin.id,
+        )
+    )
+    return RedirectResponse(url="/staff", status_code=303)
+
+
+@router.post("/staff/{staff_id}/delete")
+def delete_staff(
+    staff_id: int,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    # Staff.leaves and Staff.advances both have cascade="all,
+    # delete-orphan" -- an ORM delete here already correctly removes
+    # every leave/advance row for this staff member too. StaffLeave.staff_id
+    # is the only other FK anywhere pointing at staff.id (confirmed via a
+    # repo-wide search), so a hard delete is safe.
+    staff = db.get(Staff, staff_id)
+    if staff is not None:
+        db.delete(staff)
+    return RedirectResponse(url="/staff", status_code=303)
+
+
+@router.post("/staff/advances")
+def add_advance(
+    staff_id: int = Form(...),
+    amount: str = Form(...),
+    date: str = Form(...),
+    note: str = Form(""),
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    try:
+        resolved_amount = Decimal(amount)
+    except InvalidOperation:
+        resolved_amount = Decimal("0")
+
+    db.add(
+        StaffAdvance(
+            staff_id=staff_id,
+            amount=resolved_amount,
+            date=date,
+            note=note.strip() or None,
             created_by_user_id=admin.id,
         )
     )

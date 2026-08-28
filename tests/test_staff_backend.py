@@ -3,6 +3,8 @@ admin-only, same TestClient + StaticPool SQLite pattern as
 test_costs_backend.py."""
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
@@ -12,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 import db.base as db_base
 from backend.main import app
 from backend.security import hash_password
-from db.models import Base, Staff, StaffLeave, User
+from db.models import Base, Staff, StaffAdvance, StaffLeave, User
 
 
 @pytest.fixture()
@@ -318,3 +320,102 @@ def test_operations_cannot_edit_staff(client):
     assert resp.status_code == 403
     with SessionLocal() as session:
         assert session.get(Staff, staff_id).name == "Priya"  # unchanged
+
+
+# --- Delete staff (2026-08-28) ---
+
+def test_delete_staff_removes_staff_and_cascades_leaves(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    with SessionLocal() as session:
+        session.add(StaffLeave(staff_id=staff_id, start_date="2026-08-01", end_date="2026-08-02"))
+        session.commit()
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.post(f"/staff/{staff_id}/delete", follow_redirects=False)
+    assert resp.status_code == 303
+    with SessionLocal() as session:
+        assert session.get(Staff, staff_id) is None
+        assert session.execute(select(StaffLeave).where(StaffLeave.staff_id == staff_id)).scalars().all() == []
+
+
+def test_delete_staff_also_removes_their_advances(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    with SessionLocal() as session:
+        session.add(StaffAdvance(staff_id=staff_id, amount=Decimal("500.00"), date="2026-08-01"))
+        session.commit()
+    _login(test_client, "admin@example.com")
+
+    test_client.post(f"/staff/{staff_id}/delete", follow_redirects=False)
+    with SessionLocal() as session:
+        assert session.execute(select(StaffAdvance).where(StaffAdvance.staff_id == staff_id)).scalars().all() == []
+
+
+def test_operations_cannot_delete_staff(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "ops@example.com", "operations")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    _login(test_client, "ops@example.com")
+
+    resp = test_client.post(f"/staff/{staff_id}/delete")
+    assert resp.status_code == 403
+    with SessionLocal() as session:
+        assert session.get(Staff, staff_id) is not None  # not deleted
+
+
+def test_delete_nonexistent_staff_is_a_no_op_not_an_error(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.post("/staff/999999/delete", follow_redirects=False)
+    assert resp.status_code == 303
+
+
+# --- Staff advance payments (2026-08-28) ---
+
+def test_log_advance_for_staff(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.post(
+        "/staff/advances",
+        data={"staff_id": staff_id, "amount": "1500.00", "date": "2026-08-28", "note": "Festival advance"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    with SessionLocal() as session:
+        advance = session.execute(select(StaffAdvance).where(StaffAdvance.staff_id == staff_id)).scalar_one()
+        assert advance.amount == Decimal("1500.00")
+        assert advance.note == "Festival advance"
+        assert advance.created_by_user_id is not None
+
+
+def test_advance_total_shown_in_roster(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    _login(test_client, "admin@example.com")
+
+    test_client.post("/staff/advances", data={"staff_id": staff_id, "amount": "1000.00", "date": "2026-08-01"})
+    test_client.post("/staff/advances", data={"staff_id": staff_id, "amount": "500.00", "date": "2026-08-15"})
+
+    resp = test_client.get("/staff")
+    assert "1500.00" in resp.text
+
+
+def test_operations_cannot_log_advance(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "ops@example.com", "operations")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    _login(test_client, "ops@example.com")
+
+    resp = test_client.post("/staff/advances", data={"staff_id": staff_id, "amount": "500.00", "date": "2026-08-28"})
+    assert resp.status_code == 403
+    with SessionLocal() as session:
+        assert session.execute(select(StaffAdvance)).scalars().all() == []
