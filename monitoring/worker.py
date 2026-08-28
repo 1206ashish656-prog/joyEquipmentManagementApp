@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from db import base as db_base
-from db.models import MonitoringRun, MonitoringRunStatus
+from db.models import FaultIncident, FaultLogEntry, MonitoringRun, MonitoringRunStatus
 from monitoring.browser_manager import BrowserManager
 from monitoring.config import Settings, load_settings
 from monitoring.equipment_extractor import EquipmentExtractor
@@ -85,6 +85,45 @@ async def _reauthenticate(settings: Settings) -> None:
         await browser_manager.close()
 
 
+async def _attach_fault_log_detail(
+    lightweight: LightweightTargetClient,
+    db_session,
+    target_device_id: str,
+    incident: FaultIncident,
+) -> None:
+    """Best-effort enrichment: fetches the target's own per-component
+    Fault Information rows (device/device_fault_log) for this device and
+    attaches them to the just-opened/escalated incident, so the alert
+    email and /faults/<id> page can show real detail (e.g. "Electronic
+    scale Malfunction") instead of only the coarse fault_type text.
+
+    Deliberately never lets a failure here propagate -- this runs AFTER
+    the incident itself is already committed to the DB, so a target
+    hiccup at this exact moment must degrade to "no extra detail this
+    time", never break incident detection or suppress the alert."""
+    try:
+        rows = await lightweight.get_active_fault_log(target_device_id)
+    except Exception:  # noqa: BLE001 - enrichment only, must never break alerting
+        logger.warning("Could not fetch fault log detail for device %s", target_device_id, exc_info=True)
+        return
+
+    for row in rows:
+        db_session.add(
+            FaultLogEntry(
+                incident_id=incident.id,
+                target_log_id=row["target_log_id"],
+                component_code=row["component_code"],
+                component_description=row["component_description"],
+                is_stop=row["is_stop"],
+                is_clean=row["is_clean"],
+                occurred_at=row["occurred_at"],
+                cleared_at=row["cleared_at"],
+            )
+        )
+    if rows:
+        db_session.flush()
+
+
 def _log_result(equipment_name: str, equipment_id: str, result: ObservationResult) -> None:
     if result.incident_opened:
         logger.warning(
@@ -135,6 +174,9 @@ async def run_once(ctx: WorkerContext) -> MonitoringRun:
             for record in records:
                 result = ctx.state_manager.process_observation(db_session, record)
                 _log_result(record.name, record.equipment_id, result)
+                incident_for_detail = result.incident_opened or result.incident_escalated
+                if incident_for_detail is not None:
+                    await _attach_fault_log_detail(ctx.lightweight, db_session, record.equipment_id, incident_for_detail)
                 if result.incident_opened or result.incident_escalated or result.incident_resolved:
                     ctx.alert_engine.notify(db_session, result)
                 processed += 1

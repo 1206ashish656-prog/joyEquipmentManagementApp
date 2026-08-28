@@ -32,6 +32,22 @@ from services.state_manager import ObservationResult
 logger = logging.getLogger(__name__)
 
 
+def _format_fault_log_section(incident: FaultIncident) -> str:
+    """Renders the incident's attached FaultLogEntry rows (per-component
+    detail pulled from the target's own Equipment Management > Fault
+    Information tab -- see monitoring/worker.py's _attach_fault_log_detail
+    and monitoring/fault_codes.py) as a plain-text list for the alert
+    email body. Returns "" when none are attached -- either the target had
+    nothing active for this device at detection time, or the best-effort
+    fetch itself failed -- so the email still sends with just the
+    coarser fault_type line above it, never a broken/empty section."""
+    entries = [e for e in incident.fault_log_entries if not e.is_clean]
+    if not entries:
+        return ""
+    lines = [f"  - {e.component_description} (since {e.occurred_at.strftime('%d %b %Y %H:%M:%S')})" for e in entries]
+    return "\n\nActive Faults (Equipment Management → Fault Information):\n" + "\n".join(lines)
+
+
 def _format_incident_message(equipment: Equipment, incident: FaultIncident) -> tuple[str, str]:
     """Matches the example format in spec section 18. Uses the incident's
     preserved exact fault_type (requirement #10), never a generic label."""
@@ -44,6 +60,7 @@ def _format_incident_message(equipment: Equipment, incident: FaultIncident) -> t
         f"Fault:\n{incident.fault_type}\n\n"
         f"Severity:\n{incident.severity}\n\n"
         f"Detected:\n{incident.started_at.strftime('%d %b %Y %H:%M:%S')}"
+        f"{_format_fault_log_section(incident)}"
     )
     return subject, body
 
@@ -57,6 +74,7 @@ def _format_escalation_message(equipment: Equipment, incident: FaultIncident) ->
         f"Fault:\n{incident.fault_type}\n\n"
         f"Severity:\n{incident.severity}\n\n"
         f"Ongoing since:\n{incident.started_at.strftime('%d %b %Y %H:%M:%S')}"
+        f"{_format_fault_log_section(incident)}"
     )
     return subject, body
 

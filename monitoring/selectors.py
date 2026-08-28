@@ -54,6 +54,23 @@ DEVICE_INFORMATION_PATH = "/NgsEmfuaOv.php/device/device"
 DEVICE_LIST_API_PATH = "/NgsEmfuaOv.php/device/device/index"
 DEVICE_LIST_API_PAGE_SIZE = 100
 
+# --- Equipment Management > Fault Information tab (per-device fault log) ---
+# CONFIRMED live 2026-08-29: same JSON list API shape as the device list
+# above (FastAdmin bootstrap-table), filterable to one device via
+# filter={"device_id": "<id>"}&op={"device_id": "="} (confirmed: a device_id
+# scoped to 109 returned only that device's 95 rows). Row shape: {id,
+# device_id, createtime (unix epoch), code (raw pinyin component slug --
+# see monitoring/fault_codes.py for the translation table), is_stop,
+# clean_time (unix epoch or null), is_clean, clean_time_text}. The
+# controller's own request-backend.js formatter renders `code` as
+# "<translated component> Malfunction" and is_stop/is_clean as red/green
+# Yes/No dots -- reverse-engineered from GET
+# /NgsEmfuaOv.php/device/device_fault_log.js and the matching
+# /NgsEmfuaOv.php/ajax/lang?controllername=device.device_fault_log&lang=en-us
+# translation dump (see docs/target_application_integration_spec.md).
+DEVICE_FAULT_LOG_API_PATH = "/NgsEmfuaOv.php/device/device_fault_log/index"
+DEVICE_FAULT_LOG_API_PAGE_SIZE = 50
+
 # --- Device Information table (DOM fallback only — see module docstring) ---
 DEVICE_TABLE_CONTAINER = "table#table"
 DEVICE_TABLE_HEADER_ROW = "table#table thead tr"

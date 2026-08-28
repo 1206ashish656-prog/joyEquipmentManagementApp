@@ -9,6 +9,22 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Malfunction alerts now carry real per-component fault detail**
+(2026-08-29) — per explicit request, retrieved from the target
+application's own Equipment Management → Fault Information tab
+(`device/device_fault_log`, confirmed live against a real historical
+row) rather than only the coarse `fault_type` string. New `FaultLogEntry`
+table (new table, no manual migration needed) attached to a
+`FaultIncident` by `monitoring/worker.py`, best-effort so a target
+hiccup never blocks incident detection or the alert itself. Raw pinyin
+fault codes (e.g. `dianzicheng`) are translated to English (e.g.
+"Electronic scale Malfunction") via a static table harvested from the
+target's own backend language pack (`monitoring/fault_codes.py`).
+Surfaced in the alert email's new "Active Faults" section (still-active
+entries only) and in a new "Fault Information" table on
+`/faults/{incident_id}` (full history for that incident). See README's
+"Fault Information detail in alerts" section.
+
 **Added a self-managed VPS deployment path** (2026-08-28), alongside
 the existing Railway one — per explicit request to deploy on the
 user's Hostinger account. Researched Hostinger's actual hosting tiers

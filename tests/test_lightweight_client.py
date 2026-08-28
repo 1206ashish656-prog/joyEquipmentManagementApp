@@ -274,3 +274,122 @@ def test_has_saved_session(tmp_path):
     assert client.has_saved_session() is False
     _write_storage_state(settings.storage_state_path, [])
     assert client.has_saved_session() is True
+
+
+# --- get_active_fault_log ---
+# Reproduces the exact row shape confirmed live 2026-08-29 against
+# jwintell.com's device/device_fault_log endpoint (target's own historical
+# id=21529 row) — see monitoring/selectors.py's DEVICE_FAULT_LOG_API_PATH.
+
+@pytest.mark.asyncio
+async def test_get_active_fault_log_maps_rows_and_filters_by_device(tmp_path):
+    settings = _settings(tmp_path)
+    seen_params = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_params["filter"] = json.loads(request.url.params["filter"])
+        seen_params["op"] = json.loads(request.url.params["op"])
+        return httpx.Response(200, json={
+            "total": 1,
+            "rows": [{
+                "id": 21529, "device_id": 109, "createtime": 1787940861,
+                "code": "luozhentanzhenkaiguan", "is_clean": 0, "clean_time": None,
+                "is_stop": 1, "clean_time_text": "",
+            }],
+        })
+
+    client = LightweightTargetClient(settings)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    rows = await client.get_active_fault_log("109")
+
+    assert seen_params["filter"] == {"device_id": "109", "is_clean": "0"}
+    assert seen_params["op"] == {"device_id": "=", "is_clean": "="}
+    assert len(rows) == 1
+    assert rows[0]["target_log_id"] == 21529
+    assert rows[0]["component_code"] == "luozhentanzhenkaiguan"
+    assert rows[0]["component_description"] == "Drop cup probe switch Malfunction"
+    assert rows[0]["is_stop"] is True
+    assert rows[0]["is_clean"] is False
+    assert rows[0]["cleared_at"] is None
+    assert rows[0]["occurred_at"].isoformat() == "2026-08-28T18:14:21+00:00"
+
+
+@pytest.mark.asyncio
+async def test_get_active_fault_log_unknown_code_falls_back_gracefully(tmp_path):
+    settings = _settings(tmp_path)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "total": 1,
+            "rows": [{
+                "id": 1, "device_id": 205, "createtime": 1787940861,
+                "code": "some_new_component", "is_clean": 0, "clean_time": None,
+                "is_stop": 1, "clean_time_text": "",
+            }],
+        })
+
+    client = LightweightTargetClient(settings)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    rows = await client.get_active_fault_log("205")
+
+    assert rows[0]["component_description"] == "some new component Malfunction"
+
+
+@pytest.mark.asyncio
+async def test_get_active_fault_log_raises_authentication_required(tmp_path):
+    from monitoring.models import AuthenticationRequiredError
+
+    settings = _settings(tmp_path)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "code": 0, "msg": "please log in", "data": "",
+            "url": "/NgsEmfuaOv.php/index/login?url=%2Fdevice%2Fdevice", "wait": 3,
+        })
+
+    client = LightweightTargetClient(settings)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(AuthenticationRequiredError):
+        await client.get_active_fault_log("205")
+
+
+@pytest.mark.asyncio
+async def test_get_active_fault_log_raises_extraction_error_on_bad_status(tmp_path):
+    settings = _settings(tmp_path)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="server error")
+
+    client = LightweightTargetClient(settings)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(ExtractionError):
+        await client.get_active_fault_log("205")
+
+
+@pytest.mark.asyncio
+async def test_get_active_fault_log_raises_target_unavailable_on_network_error(tmp_path):
+    settings = _settings(tmp_path)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    client = LightweightTargetClient(settings)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(TargetUnavailableError):
+        await client.get_active_fault_log("205")
+
+
+@pytest.mark.asyncio
+async def test_get_active_fault_log_empty_when_no_active_faults(tmp_path):
+    """The common case for a healthy device — confirmed live against all
+    6 real tracked machines on 2026-08-29 (each returned total=0)."""
+    settings = _settings(tmp_path)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"total": 0, "rows": []})
+
+    client = LightweightTargetClient(settings)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    rows = await client.get_active_fault_log("205")
+
+    assert rows == []

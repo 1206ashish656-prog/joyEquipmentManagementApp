@@ -141,6 +141,46 @@ class FaultIncident(Base):
     notification_sent: Mapped[bool] = mapped_column(Boolean, default=False)
 
     equipment: Mapped["Equipment"] = relationship(back_populates="incidents")
+    fault_log_entries: Mapped[list["FaultLogEntry"]] = relationship(
+        back_populates="incident",
+        cascade="all, delete-orphan",
+        order_by="FaultLogEntry.occurred_at.desc()",
+    )
+
+
+class FaultLogEntry(Base):
+    """One row from the target application's own Equipment Management >
+    Fault Information tab (device/device_fault_log -- see
+    monitoring/selectors.py's DEVICE_FAULT_LOG_API_PATH and
+    monitoring/fault_codes.py for the code -> description translation),
+    captured at the moment a FaultIncident opens or escalates. This is the
+    richer, per-component detail a bare fault_type string doesn't carry
+    (e.g. "Electronic scale Malfunction" instead of just "Malfunction").
+
+    Best-effort by design: monitoring/worker.py fetches these AFTER the
+    incident itself is already persisted, so a failure fetching or
+    translating them never blocks incident detection or the alert email --
+    it only means that email/page goes out with less detail this time.
+    """
+    __tablename__ = "fault_log_entry"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    incident_id: Mapped[int] = mapped_column(ForeignKey("fault_incident.id"), index=True)
+    # The target's own device_fault_log.id -- preserved for audit/dedup,
+    # never used as our own primary key (this app's ids are independent).
+    target_log_id: Mapped[int] = mapped_column(Integer)
+    # Raw pinyin slug (e.g. "dianzicheng") preserved exactly as the target
+    # sent it (requirement #10), alongside our translated, ready-to-display
+    # text (e.g. "Electronic scale Malfunction").
+    component_code: Mapped[str] = mapped_column(String(128), default="")
+    component_description: Mapped[str] = mapped_column(String(255), default="")
+    is_stop: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_clean: Mapped[bool] = mapped_column(Boolean, default=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    cleared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    incident: Mapped["FaultIncident"] = relationship(back_populates="fault_log_entries")
 
 
 class UserRole(str, enum.Enum):

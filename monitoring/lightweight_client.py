@@ -34,14 +34,21 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
 
 from .config import Settings
+from .fault_codes import describe_fault_code
 from .mapping import _MAX_PAGINATION_PAGES, map_api_row_to_canonical
 from .models import AuthenticationRequiredError, ExtractionError, TargetUnavailableError
-from .selectors import DEVICE_LIST_API_PAGE_SIZE, DEVICE_LIST_API_PATH
+from .selectors import (
+    DEVICE_FAULT_LOG_API_PAGE_SIZE,
+    DEVICE_FAULT_LOG_API_PATH,
+    DEVICE_LIST_API_PAGE_SIZE,
+    DEVICE_LIST_API_PATH,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -201,6 +208,83 @@ class LightweightTargetClient:
 
         return all_rows
 
+    async def get_active_fault_log(self, device_id: str) -> list[dict]:
+        """Fetches the currently-active (not yet auto-cleared, is_clean=0)
+        rows from the target's Equipment Management > Fault Information
+        tab for one device -- see selectors.DEVICE_FAULT_LOG_API_PATH.
+
+        Deliberately best-effort: called from monitoring/worker.py only
+        AFTER a FaultIncident is already persisted, purely to attach richer
+        detail (monitoring/fault_codes.py) -- any exception here must be
+        caught by the caller and must never block incident detection or
+        the alert email itself. Returns canonical dicts with keys
+        target_log_id/component_code/component_description/is_stop/
+        is_clean/occurred_at/cleared_at -- occurred_at/cleared_at are
+        aware UTC datetimes (the target's own timestamps are plain unix
+        epoch, so no timezone-offset guessing is needed here, unlike the
+        orders RANGE-filter day-boundary case in orders/mapping.py)."""
+        assert self._http is not None
+        url = f"{self.settings.target_base_url}{DEVICE_FAULT_LOG_API_PATH}"
+        params = {
+            "sort": "id",
+            "order": "desc",
+            "offset": "0",
+            "limit": str(DEVICE_FAULT_LOG_API_PAGE_SIZE),
+            "filter": json.dumps({"device_id": str(device_id), "is_clean": "0"}),
+            "op": json.dumps({"device_id": "=", "is_clean": "="}),
+        }
+        try:
+            resp = await self._http.get(url, params=params, headers={"X-Requested-With": "XMLHttpRequest"})
+        except httpx.HTTPError as e:
+            raise TargetUnavailableError(f"Could not reach fault log API: {e}") from e
+
+        if resp.status_code != 200:
+            raise ExtractionError(f"Fault log API returned HTTP {resp.status_code}")
+
+        try:
+            data = resp.json()
+        except json.JSONDecodeError as e:
+            raise ExtractionError(f"Fault log API did not return valid JSON: {e}") from e
+
+        if is_not_authenticated_payload(data):
+            raise AuthenticationRequiredError("Fault log API reports not authenticated mid-fetch — session expired.")
+
+        if not isinstance(data, dict) or "rows" not in data:
+            raise ExtractionError(
+                f"Fault log API response missing 'rows' — schema may have changed. "
+                f"Keys seen: {list(data.keys()) if isinstance(data, dict) else type(data)}"
+            )
+
+        return [map_fault_log_row_to_canonical(r) for r in data["rows"]]
+
     async def close(self) -> None:
         if self._http is not None:
             await self._http.aclose()
+
+
+def map_fault_log_row_to_canonical(row: dict) -> dict:
+    """Maps one raw device_fault_log API row to the canonical shape
+    db.models.FaultLogEntry expects. Never raises on a malformed epoch --
+    falls back to "now" rather than dropping the row, since a fault log
+    entry with a slightly-off timestamp is still far more useful than
+    silently losing it (requirement #28's spirit: don't let a formatting
+    hiccup destroy real information)."""
+
+    def _epoch_to_utc(value) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.fromtimestamp(int(value), tz=timezone.utc)
+        except (TypeError, ValueError, OSError):
+            return None
+
+    code = str(row.get("code") or "")
+    return {
+        "target_log_id": int(row.get("id") or 0),
+        "component_code": code,
+        "component_description": describe_fault_code(code),
+        "is_stop": bool(row.get("is_stop")),
+        "is_clean": bool(row.get("is_clean")),
+        "occurred_at": _epoch_to_utc(row.get("createtime")) or datetime.now(timezone.utc),
+        "cleared_at": _epoch_to_utc(row.get("clean_time")),
+    }

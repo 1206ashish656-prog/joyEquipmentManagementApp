@@ -15,4 +15,25 @@
   <tr><td>Current State</td><td>{{ incident.status.value }}</td></tr>
   <tr><td>Notification Sent</td><td>{{ "Yes" if incident.notification_sent else "No" }}</td></tr>
 </table>
+
+<section>
+  <h2>Fault Information</h2>
+  <p class="callout">Per-component detail from the target application's own Equipment Management &rsaquo; Fault Information tab, captured when this incident was detected.</p>
+  <table class="equipment-table">
+    <thead><tr><th>Component</th><th>Since</th><th>Record</th><th>Clear Time</th><th>Automatic Clear</th></tr></thead>
+    <tbody>
+      {% for entry in incident.fault_log_entries %}
+      <tr>
+        <td>{{ entry.component_description }}</td>
+        <td>{{ entry.occurred_at | ist }}</td>
+        <td>{{ "Yes" if entry.is_stop else "No" }}</td>
+        <td>{{ entry.cleared_at | ist }}</td>
+        <td>{{ "Yes" if entry.is_clean else "No" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">No additional fault detail available for this incident.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
 {% endblock %}

@@ -499,6 +499,43 @@ mistaken "Mark as left" — a cleared end date makes the staff member
 active again, and the "Mark as left" action reappears for them on the
 roster (same `not employment_end_date` check that already drove it).
 
+## Fault Information detail in alerts (2026-08-29)
+
+A malfunction alert's coarse `fault_type` text (e.g. "Fault") never told
+you *which part* of the machine actually failed. `monitoring/worker.py`
+now enriches every newly-opened or escalated `FaultIncident` with the
+real per-component detail from the target application's own **Equipment
+Management → Fault Information** tab (`device/device_fault_log` —
+confirmed live 2026-08-29 against a real historical row: target id
+21529, device 109, code `luozhentanzhenkaiguan`), stored as
+`FaultLogEntry` rows (new table — safe on any existing deployment, no
+manual migration needed, see the no-Alembic note above). This is
+deliberately best-effort: `monitoring/worker.py`'s
+`_attach_fault_log_detail()` runs AFTER the incident is already
+persisted and swallows any failure — a target hiccup at that exact
+moment degrades to "no extra detail this time," never blocks incident
+detection or suppresses the alert email itself.
+
+The raw `code` field is a pinyin slug (e.g. `dianzicheng`) — translated
+to English (e.g. "Electronic scale Malfunction") via
+`monitoring/fault_codes.py`'s static table, harvested verbatim from the
+target's own backend language pack
+(`GET /ajax/lang?controllername=device.device_fault_log&lang=en-us` —
+the same endpoint its own UI uses to render that tab, confirmed to
+reproduce "Electronic scale Malfunction" / "Drop cup probe switch
+Malfunction" exactly). An unrecognized code (this table isn't guaranteed
+exhaustive) falls back to a readable guess and logs a warning rather than
+erroring.
+
+Surfaced in two places:
+- **Email**: `services/alert_engine.py`'s incident/escalation messages
+  gain an "Active Faults" section listing only the still-uncleared
+  (`is_clean=False`) entries — an entry the target already auto-cleared
+  by the time the email sends isn't an active problem any more.
+- **UI**: `/faults/{incident_id}`'s new "Fault Information" table shows
+  every attached entry (cleared or not) with its Record/Clear
+  Time/Automatic Clear columns, matching the target's own tab layout.
+
 ## Alert Recipients (admin-only, `/alert-recipients`)
 
 The email alerting system itself (`services/alert_engine.py` +

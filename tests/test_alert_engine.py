@@ -8,8 +8,9 @@ are about WHO gets notified and WHEN, not about email delivery mechanics
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timezone
 
-from db.models import AlertRecipient, AlertSubscription, User
+from db.models import AlertRecipient, AlertSubscription, FaultLogEntry, User
 from monitoring.config import load_settings
 from services.alert_engine import AlertEngine
 from services.health_engine import HealthEngine
@@ -276,6 +277,84 @@ def test_flat_recipient_and_admin_both_notified_deduplicated(db_session):
 
     assert len(fake.sent) == 1
     assert fake.sent[0]["to"] == ["admin@example.com", "ops-external@example.com"]
+
+
+# --- FaultLogEntry: per-component fault detail from Equipment Management
+# > Fault Information, attached by monitoring/worker.py before notify() is
+# called — see monitoring/fault_codes.py and _format_fault_log_section. ---
+
+def test_active_fault_log_entries_included_in_incident_email(db_session):
+    _add_user(db_session, "admin@example.com", role="admin")
+    fake = FakeNotificationService()
+    alert_engine = _engine(fake)
+    sm = StateManager(HealthEngine())
+
+    result = sm.process_observation(db_session, make_record(fault_type="Motor Fault"))
+    db_session.add(
+        FaultLogEntry(
+            incident_id=result.incident_opened.id,
+            target_log_id=21529,
+            component_code="luozhentanzhenkaiguan",
+            component_description="Drop cup probe switch Malfunction",
+            is_stop=True,
+            is_clean=False,
+            occurred_at=datetime(2026, 8, 29, 2, 14, 21, tzinfo=timezone.utc),
+            cleared_at=None,
+        )
+    )
+    db_session.flush()
+
+    alert_engine.notify(db_session, result)
+
+    assert len(fake.sent) == 1
+    body = fake.sent[0]["body"]
+    assert "Active Faults" in body
+    assert "Drop cup probe switch Malfunction" in body
+
+
+def test_already_cleared_fault_log_entries_excluded_from_email(db_session):
+    """An entry the target already auto-cleared (is_clean=True) isn't an
+    ACTIVE fault any more by the time the email goes out — only
+    still-uncleared entries belong in "Active Faults"."""
+    _add_user(db_session, "admin@example.com", role="admin")
+    fake = FakeNotificationService()
+    alert_engine = _engine(fake)
+    sm = StateManager(HealthEngine())
+
+    result = sm.process_observation(db_session, make_record(fault_type="Motor Fault"))
+    db_session.add(
+        FaultLogEntry(
+            incident_id=result.incident_opened.id,
+            target_log_id=1,
+            component_code="dianzicheng",
+            component_description="Electronic scale Malfunction",
+            is_stop=True,
+            is_clean=True,
+            occurred_at=datetime(2026, 8, 29, 2, 14, 21, tzinfo=timezone.utc),
+            cleared_at=datetime(2026, 8, 29, 2, 16, 13, tzinfo=timezone.utc),
+        )
+    )
+    db_session.flush()
+
+    alert_engine.notify(db_session, result)
+
+    assert "Active Faults" not in fake.sent[0]["body"]
+
+
+def test_no_fault_log_entries_does_not_add_section_or_crash(db_session):
+    """The common/default case (best-effort fetch found nothing, or
+    hasn't run) — the email must still send with no "Active Faults"
+    section and no error."""
+    _add_user(db_session, "admin@example.com", role="admin")
+    fake = FakeNotificationService()
+    alert_engine = _engine(fake)
+    sm = StateManager(HealthEngine())
+
+    result = sm.process_observation(db_session, make_record(fault_type="Motor Fault"))
+    alert_engine.notify(db_session, result)
+
+    assert len(fake.sent) == 1
+    assert "Active Faults" not in fake.sent[0]["body"]
 
 
 def test_no_recipients_does_not_crash(db_session):
