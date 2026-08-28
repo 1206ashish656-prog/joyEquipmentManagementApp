@@ -218,6 +218,38 @@ def test_dashboard_shows_cartons_equivalent_for_glasses(client):
     assert "2 cartons + 2 pcs" in resp.text
 
 
+# --- Set Stock cartons support (2026-08-28) ---
+
+def test_set_stock_form_shows_cartons_split_for_carton_item(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _seed_item(SessionLocal, key="glasses", name="Glasses", unit="pieces", current_stock=50, pieces_per_carton=24)
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/inventory")
+    assert 'data-pieces-per-carton="24"' in resp.text
+    assert 'class="set-stock-cartons"' in resp.text
+    assert 'class="set-stock-loose"' in resp.text
+
+
+def test_set_stock_form_shows_plain_input_for_non_carton_item(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _seed_item(SessionLocal, key="oranges", name="Oranges", unit="boxes", current_stock=20, pieces_per_carton=None)
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/inventory")
+    # The Log Usage <select>'s data-pieces-per-carton="" is expected for
+    # every item (empty string when unset), and the page's <script>
+    # block always references the ".set-stock-cartons" CSS selector
+    # regardless of items -- what must NOT appear is the actual rendered
+    # cartons/loose INPUT elements, which only render when
+    # pieces_per_carton is truthy.
+    assert 'class="set-stock-cartons"' not in resp.text
+    assert 'class="set-stock-loose"' not in resp.text
+    assert 'name="new_stock"' in resp.text
+
+
 # --- Crossing-triggered email, end to end through the real routes ---
 
 def test_crossing_threshold_sends_exactly_one_email_across_two_requests(client):

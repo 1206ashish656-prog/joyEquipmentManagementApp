@@ -15,6 +15,13 @@ Run:
 Item creation is seed-script-only — there's no in-app "add a new item"
 flow, matching the fixed list from the original request. To add an
 11th item later, add it to DEFAULT_ITEMS below and re-run.
+
+To track any OTHER item by a primary/secondary unit (e.g. "50 cartons,
+each carton has 10 pieces"), just set that item's pieces_per_carton
+here and re-run — the Current Stock display, the Log Usage form, and
+the Set Stock form (as of 2026-08-28) all already key off this one
+field generically. No code changes needed for a new item; only
+glasses/straws happen to have it set today, that's just seed data.
 """
 from __future__ import annotations
 

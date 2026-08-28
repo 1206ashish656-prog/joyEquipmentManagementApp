@@ -37,8 +37,15 @@
           {% endif %}
         </td>
         <td>
-          <form method="post" action="/inventory/{{ item.id }}/set-stock" class="checkbox-label" style="gap:6px;">
+          <form method="post" action="/inventory/{{ item.id }}/set-stock" class="checkbox-label set-stock-form" style="gap:6px;"
+                {% if item.pieces_per_carton %}data-pieces-per-carton="{{ item.pieces_per_carton }}"{% endif %}>
+            {% if item.pieces_per_carton %}
+            <input type="number" class="set-stock-cartons" min="0" value="{{ item.current_stock // item.pieces_per_carton }}" style="width:70px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;"> cartons +
+            <input type="number" class="set-stock-loose" min="0" value="{{ item.current_stock % item.pieces_per_carton }}" style="width:70px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;"> pcs
+            <input type="hidden" name="new_stock" class="set-stock-hidden" value="{{ item.current_stock }}">
+            {% else %}
             <input type="number" name="new_stock" min="0" value="{{ item.current_stock }}" required style="width:90px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;">
+            {% endif %}
             <button type="submit" class="linklike">Set</button>
           </form>
         </td>
@@ -135,6 +142,27 @@
       } else {
         hiddenQuantity.value = String(parseInt(plainInput.value, 10) || 0);
       }
+    });
+  })();
+
+  // Set Stock: recompute each cartons+pieces form's hidden new_stock
+  // field as cartons*perCarton + loose, same computed-hidden-field
+  // idiom as Log Usage's quantity-used-hidden above.
+  (function () {
+    document.querySelectorAll(".set-stock-form[data-pieces-per-carton]").forEach(function (form) {
+      var perCarton = parseInt(form.getAttribute("data-pieces-per-carton"), 10) || 0;
+      var cartonsInput = form.querySelector(".set-stock-cartons");
+      var looseInput = form.querySelector(".set-stock-loose");
+      var hidden = form.querySelector(".set-stock-hidden");
+      function recompute() {
+        var cartons = parseInt(cartonsInput.value, 10) || 0;
+        var loose = parseInt(looseInput.value, 10) || 0;
+        hidden.value = String(cartons * perCarton + loose);
+      }
+      cartonsInput.addEventListener("input", recompute);
+      looseInput.addEventListener("input", recompute);
+      form.addEventListener("submit", recompute);
+      recompute();
     });
   })();
 </script>
