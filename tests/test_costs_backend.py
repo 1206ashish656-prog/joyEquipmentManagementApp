@@ -388,3 +388,62 @@ def test_delete_nonexistent_entry_is_a_no_op_not_an_error(client):
 
     resp = test_client.post("/costs/999999/delete", follow_redirects=False)
     assert resp.status_code == 303
+
+
+# --- Item / description is optional (2026-08-28) ---
+
+def test_create_entry_without_item_name_stores_empty_string(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.post(
+        "/costs",
+        data={"date": "2026-08-28", "category": "Oranges", "vendor_name": "Fresh Farms", "amount": "500.00"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    with SessionLocal() as session:
+        entry = session.execute(select(CostEntry).where(CostEntry.date == "2026-08-28")).scalar_one()
+        assert entry.item_name == ""
+
+
+def test_create_entry_with_blank_or_whitespace_item_name_stores_empty_string(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _login(test_client, "admin@example.com")
+
+    test_client.post(
+        "/costs",
+        data={"date": "2026-08-28", "category": "Oranges", "vendor_name": "Fresh Farms", "item_name": "   ", "amount": "500.00"},
+        follow_redirects=False,
+    )
+    with SessionLocal() as session:
+        entry = session.execute(select(CostEntry).where(CostEntry.date == "2026-08-28")).scalar_one()
+        assert entry.item_name == ""
+
+
+def test_raw_entries_show_placeholder_for_blank_item_name(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _seed_entry(SessionLocal, "2026-08-24", "Oranges", "Fresh Farms", "", "5000.00")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/costs?period=daily&as_of=2026-08-24&show_raw_data=yes")
+    assert "—" in resp.text
+
+
+def test_edit_entry_can_clear_item_name(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    entry_id = _seed_entry(SessionLocal, "2026-08-24", "Oranges", "Fresh Farms", "Batch A", "5000.00")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.post(
+        f"/costs/{entry_id}/edit",
+        data={"date": "2026-08-24", "category": "Oranges", "vendor_name": "Fresh Farms", "item_name": "", "amount": "5000.00"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    with SessionLocal() as session:
+        assert session.get(CostEntry, entry_id).item_name == ""
