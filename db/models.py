@@ -179,6 +179,18 @@ class User(Base):
     # nothing or everything).
     venue_provider: Mapped[str | None] = mapped_column(String(255), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Gates changing ANY user's role to/from "admin" (backend/api/users.py) --
+    # a regular admin can still edit everything else (name/email/venue/
+    # active/password) on any user, and can freely switch a non-admin
+    # between operations/venue_partner. Only a super admin can touch the
+    # admin role itself. Bootstrapped by db/seed_admin.py for exactly one
+    # account; promote/demote anyone else only via /users/{id}/edit once
+    # a super admin exists. NOTE: this is a new column on an existing
+    # live table -- see README.md's RBAC section for the manual
+    # `ALTER TABLE users ADD COLUMN is_super_admin ...` needed on any
+    # already-existing database (this project has no Alembic; create_all()
+    # only creates missing tables, never alters existing ones).
+    is_super_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     # Salted PBKDF2 hash for THIS app's own dashboard login — entirely
     # separate from the target application's credentials (which live only

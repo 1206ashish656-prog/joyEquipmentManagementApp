@@ -11,14 +11,15 @@
     <tr>
       <td>{{ u.name }}</td>
       <td>{{ u.email }}</td>
-      <td>{{ u.role }}</td>
+      <td>{{ u.role }}{% if u.is_super_admin %} <span class="badge badge-warning">⭐ Super Admin</span>{% endif %}</td>
       <td>{{ u.venue_provider or "—" }}</td>
       <td>{{ "Yes" if u.active else "No" }}</td>
       <td>
+        <a href="/users/{{ u.id }}/edit">Edit</a>
         {% if u.active %}
-        <form method="post" action="/users/{{ u.id }}/deactivate"><button type="submit" class="linklike">Deactivate</button></form>
+        <form method="post" action="/users/{{ u.id }}/deactivate" style="display:inline;"><button type="submit" class="linklike">Deactivate</button></form>
         {% else %}
-        <form method="post" action="/users/{{ u.id }}/activate"><button type="submit" class="linklike">Activate</button></form>
+        <form method="post" action="/users/{{ u.id }}/activate" style="display:inline;"><button type="submit" class="linklike">Activate</button></form>
         {% endif %}
       </td>
     </tr>
@@ -40,7 +41,9 @@
     <select name="role" id="role-select">
       <option value="operations">Operations (dashboard only)</option>
       <option value="venue_partner">Venue Partner (order summary only)</option>
+      {% if user.is_super_admin %}
       <option value="admin">Admin (full access)</option>
+      {% endif %}
     </select>
   </label>
   <label id="venue-field" style="display:none;">Venue

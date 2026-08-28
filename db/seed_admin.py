@@ -22,6 +22,14 @@ from backend.security import hash_password
 from db import base as db_base
 from db.models import User
 
+# Exactly one initial super admin (able to grant/revoke the admin role
+# itself, see db/models.py's User.is_super_admin) -- the user's explicit
+# choice. Promote/demote anyone else via /users/{id}/edit once this
+# account exists and can log in. Re-running this script for this email
+# always restores the flag if it was somehow cleared; running it for any
+# OTHER email never touches this account's flag.
+SUPER_ADMIN_EMAIL = "1206ashish656@gmail.com"
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Create or update the first admin user")
@@ -48,6 +56,8 @@ def main() -> None:
             user.active = True
             action = "Updated"
         user.password_hash = hash_password(password)
+        if email == SUPER_ADMIN_EMAIL:
+            user.is_super_admin = True
 
     print(f"{action} admin user {email}.")
 

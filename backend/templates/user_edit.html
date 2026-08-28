@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Edit User — Equipment Monitor{% endblock %}
+{% block content %}
+<h1>Edit User</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<section class="status-panel">
+  <form method="post" action="/users/{{ target.id }}/edit" class="stacked-form" style="margin: 0;">
+    <label>Name<input type="text" name="name" value="{{ target.name }}" required></label>
+    <label>Email<input type="email" name="email" value="{{ target.email }}" required></label>
+    <label>Role
+      {% if target.role == "admin" and not user.is_super_admin %}
+      <input type="text" value="Admin (locked — only a super admin can change this)" disabled style="color: var(--muted);">
+      <input type="hidden" name="role" value="admin">
+      {% else %}
+      <select name="role" id="role-select">
+        <option value="operations" {% if target.role == "operations" %}selected{% endif %}>Operations (dashboard only)</option>
+        <option value="venue_partner" {% if target.role == "venue_partner" %}selected{% endif %}>Venue Partner (order summary only)</option>
+        {% if user.is_super_admin %}
+        <option value="admin" {% if target.role == "admin" %}selected{% endif %}>Admin (full access)</option>
+        {% endif %}
+      </select>
+      {% endif %}
+    </label>
+    <label id="venue-field" style="{% if target.role != 'venue_partner' %}display:none;{% endif %}">Venue
+      <select name="venue_provider">
+        <option value="">— select a venue —</option>
+        {% for v in venues %}
+        <option value="{{ v }}" {% if v == target.venue_provider %}selected{% endif %}>{{ v }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="checkbox-label"><input type="checkbox" name="active" {% if target.active %}checked{% endif %}> Active</label>
+    <label>New password <span style="font-weight:400;color:var(--muted);">(optional — leave blank to keep current)</span>
+      <input type="password" name="password">
+    </label>
+    <button type="submit">Save Changes</button>
+  </form>
+  <p style="margin-top:14px;"><a href="/users">← Back to Users</a></p>
+</section>
+
+<script>
+  (function () {
+    var roleSelect = document.getElementById("role-select");
+    if (!roleSelect) return;  // role is locked (plain text), nothing to sync
+    var venueField = document.getElementById("venue-field");
+    function sync() {
+      venueField.style.display = roleSelect.value === "venue_partner" ? "flex" : "none";
+    }
+    roleSelect.addEventListener("change", sync);
+    sync();
+  })();
+</script>
+{% endblock %}

@@ -435,6 +435,18 @@ schema patch (this project has no Alembic yet — see Phase 6 in
 venue_provider VARCHAR(255)`, then `python -m db.seed_venue_mapping`
 (which also creates the new `venue_mapping` table via `create_all()`).
 
+**Super admin (2026-08-28)**: `User.is_super_admin` gates changing
+ANY user's role to/from `admin` (`/users/{id}/edit`, `backend/api/users.py`)
+— a regular admin can still edit everything else on any user, and can
+freely switch a non-admin between `operations`/`venue_partner`; only a
+super admin can touch the `admin` role itself. Same "no Alembic"
+situation as `venue_provider` above — an **existing** deployment needs
+the same kind of manual patch: `ALTER TABLE users ADD COLUMN
+is_super_admin BOOLEAN NOT NULL DEFAULT FALSE`, then re-run
+`python -m db.seed_admin --email 1206ashish656@gmail.com --name "..." --password "..."`
+to mark that account as the (one, explicitly chosen) initial super
+admin. A fresh install gets the column for free via `create_all()`.
+
 ## Cost Management and Staff & Leave Management (admin-only)
 
 Two more admin-only tabs, both gated by the existing `require_admin`
