@@ -251,3 +251,41 @@ def test_venue_partner_does_not_see_revenue_or_oranges_per_glass(client):
     # the venue partner still sees their own underlying numbers, just not
     # the two derived admin-only metrics.
     assert "NEXUS" in resp.text or "10" in resp.text
+
+
+def test_venue_partner_chart_json_omits_revenue(client):
+    """Hardening the above: the chart's embedded JSON payload must not
+    leak raw revenue numbers either, even though nothing visibly renders
+    them -- a page-source/network-tab read shouldn't reveal it."""
+    test_client, SessionLocal = client
+    with SessionLocal() as session:
+        from db.models import VenueMapping
+        session.add(VenueMapping(machine_name="NEXUS", venue_provider="Forum Kormangala"))
+        session.add(User(
+            name="Venue", email="venue@example.com", role="venue_partner", venue_provider="Forum Kormangala",
+            active=True, password_hash=hash_password("pw123456"),
+        ))
+        session.commit()
+    # 2 orders @ 500.00 -> revenue 1000.00, a figure distinct from every
+    # OTHER visible field (avg price 500.00, oranges, juice weight) so a
+    # match can only come from the revenue computation itself.
+    _seed_order_summary(SessionLocal, "2026-08-23", "NEXUS", "500.00", "UPI", n=2, oranges=6)
+    _login(test_client, "venue@example.com", "pw123456")
+
+    resp = test_client.get("/orders/summary?period=daily&as_of=2026-08-23")
+    assert resp.status_code == 200
+    assert "1000.00" not in resp.text
+    assert '"revenue"' not in resp.text
+
+
+def test_admin_chart_json_includes_revenue(client):
+    """Regression guard: the fix above must not accidentally strip
+    revenue from the admin-facing chart too."""
+    test_client, SessionLocal = client
+    _seed_user(SessionLocal)
+    _seed_order_summary(SessionLocal, "2026-08-23", "NEXUS", "500.00", "UPI", n=2, oranges=6)
+    _login(test_client)
+
+    resp = test_client.get("/orders/summary?period=daily&as_of=2026-08-23")
+    assert resp.status_code == 200
+    assert '"revenue"' in resp.text

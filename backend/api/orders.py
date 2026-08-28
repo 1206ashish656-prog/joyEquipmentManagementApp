@@ -48,11 +48,20 @@ def _venue_machines(db: Session, venue_provider: str) -> list[str]:
     return list(rows)
 
 
-def _time_series_payload(rows: list[OrderSummary], split_by_machine: bool) -> dict:
+def _time_series_payload(rows: list[OrderSummary], split_by_machine: bool, include_revenue: bool) -> dict:
     """A per-date time series, either as a single 'All machines' line or
     one line per machine — used for BOTH the always-on aggregate chart
     and the optional by-machine chart, so there's one implementation of
-    'turn rows into a Chart.js-shaped series', not two."""
+    'turn rows into a Chart.js-shaped series', not two.
+
+    include_revenue: the chart JS (order_summary.html's renderOrdersChart)
+    only ever plots "orders", never "revenue" — but the raw JSON blob is
+    embedded in the page for every role, so a venue_partner could
+    previously read real revenue numbers out of page-source/network tab
+    even though nothing visibly rendered them (Revenue is otherwise
+    correctly admin-only gated everywhere else on this page). Omitting
+    the key entirely for a non-admin closes that leak with zero visible
+    change for anyone, since nothing ever read it."""
     group_by = ("date", "device_app") if split_by_machine else ("date",)
     chart_rows = rollup(rows, group_by=group_by)
 
@@ -64,11 +73,13 @@ def _time_series_payload(rows: list[OrderSummary], split_by_machine: bool) -> di
             {
                 "label": machine,
                 "orders": [by_key[(d, machine)].number_of_orders if (d, machine) in by_key else 0 for d in dates],
-                "revenue": [
-                    float(by_key[(d, machine)].number_of_orders * by_key[(d, machine)].average_price)
-                    if (d, machine) in by_key else 0
-                    for d in dates
-                ],
+                **({
+                    "revenue": [
+                        float(by_key[(d, machine)].number_of_orders * by_key[(d, machine)].average_price)
+                        if (d, machine) in by_key else 0
+                        for d in dates
+                    ],
+                } if include_revenue else {}),
             }
             for machine in machines
         ]
@@ -77,9 +88,11 @@ def _time_series_payload(rows: list[OrderSummary], split_by_machine: bool) -> di
         datasets = [{
             "label": "All machines",
             "orders": [by_key[d].number_of_orders if d in by_key else 0 for d in dates],
-            "revenue": [
-                float(by_key[d].number_of_orders * by_key[d].average_price) if d in by_key else 0 for d in dates
-            ],
+            **({
+                "revenue": [
+                    float(by_key[d].number_of_orders * by_key[d].average_price) if d in by_key else 0 for d in dates
+                ],
+            } if include_revenue else {}),
         }]
 
     return {"dates": dates, "datasets": datasets}
@@ -136,8 +149,9 @@ def orders_summary(
     # aggregated orders over time as well" — independent of whatever
     # breakdown is selected for the table below), plus an optional
     # by-machine trend when that breakdown is selected.
-    aggregate_chart_data = _time_series_payload(rows, split_by_machine=False)
-    machine_chart_data = _time_series_payload(rows, split_by_machine=True) if by_machine else None
+    include_revenue = user.role == "admin"
+    aggregate_chart_data = _time_series_payload(rows, split_by_machine=False, include_revenue=include_revenue)
+    machine_chart_data = _time_series_payload(rows, split_by_machine=True, include_revenue=include_revenue) if by_machine else None
 
     return templates.TemplateResponse(
         request,
