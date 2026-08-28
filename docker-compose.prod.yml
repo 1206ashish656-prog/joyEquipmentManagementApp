@@ -1,0 +1,65 @@
+# Production topology for a self-managed VPS (see docs/DEPLOYMENT_VPS.md
+# for the full walkthrough). This is a SEPARATE file from the existing
+# docker-compose.yml (which stays the local-dev, Postgres-only file) --
+# every command in DEPLOYMENT_VPS.md is explicit about
+# `-f docker-compose.prod.yml` so the two are never confused.
+#
+# Three services sharing one Docker network:
+#   - postgres: same image/config as the dev compose file, but bound to
+#     127.0.0.1 only -- a VPS has a real public IP, so publishing on all
+#     interfaces (the dev file's default) would make Postgres directly
+#     internet-reachable the instant the container starts, before ufw
+#     even matters (Docker manipulates iptables directly, a known way
+#     port publishes bypass ufw-only firewalling).
+#   - web: the dashboard, also loopback-only -- Nginx (installed on the
+#     VPS host, not containerized) is the only thing that should ever
+#     reach it. No volume: nothing under backend/ ever touches
+#     STORAGE_STATE_PATH or anything else under data/ (confirmed via a
+#     repo-wide search), so web needs no persistent storage.
+#   - worker: same image as web, command overridden to run
+#     monitoring.combined_worker instead -- this is the VPS equivalent
+#     of Railway's per-service "Start Command" override. Mounts the one
+#     volume that matters: the Playwright session cookie file.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    command: ["python", "-m", "monitoring.combined_worker", "--loop"]
+    volumes:
+      - worker_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  worker_data:

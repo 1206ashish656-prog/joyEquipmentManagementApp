@@ -9,6 +9,49 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Added a self-managed VPS deployment path** (2026-08-28), alongside
+the existing Railway one — per explicit request to deploy on the
+user's Hostinger account. Researched Hostinger's actual hosting tiers
+first rather than assume: confirmed directly from Hostinger's own docs
+that shared/cloud hosting has no root access and therefore can't run
+Python at all, while **Hostinger KVM VPS** is a real Linux VM (same
+category as a DigitalOcean/Linode droplet) that supports everything
+this app needs (Python, Postgres, Playwright/headless Chromium,
+long-running background processes).
+
+New `docker-compose.prod.yml` (repo root) — three services (`web`,
+`worker`, `postgres`) built from the existing `Dockerfile` and reusing
+`monitoring/combined_worker.py` unchanged (no application code changes
+needed; the Railway deployment already solved the "two loops need to
+share one session file" problem this reuses as-is). One genuine
+security correction versus the existing dev `docker-compose.yml`:
+Postgres (and the web container's own port) bound to `127.0.0.1` only,
+not all interfaces — a VPS has a real public IP, so the dev file's
+default publish-on-all-interfaces behavior would make Postgres directly
+internet-reachable, unlike a laptop behind home-router NAT or Railway's
+network-isolated managed Postgres.
+
+New `docs/DEPLOYMENT_VPS.md` — full walkthrough (SSH hardening, `ufw`
+firewall, Docker install, DNS, `.env` setup, first build, schema/admin
+seeding, Nginx + Certbot TLS, a concrete verification checklist
+including confirming Postgres is genuinely unreachable from outside the
+VPS) — sibling to `docs/DEPLOYMENT.md`, not a replacement. Explicitly
+notes that a VPS's real static IP makes the earlier-explored Cloudflare
+Tunnel path unnecessary here — DNS is just one A record
+(`equipment.joyjuice.in` → the VPS's IP) in Hostinger's own hPanel,
+since `joyjuice.in`/`refresha.in` are already hosted there — without
+touching either domain's live website/email records at all.
+
+Built via formal plan mode (1 Explore agent confirming exact current
+file contents rather than trusting memory, 1 Plan agent), following the
+same disciplined process as the original Railway deployment plan.
+Documentation + one new compose file only — cannot be live-verified
+from here (no SSH access to the user's VPS); the doc's own Step 10
+checklist is written to be concretely checkable by the user themselves.
+
+`README.md` updated with a pointer to the new doc alongside the
+existing Railway section.
+
 **Migrated the local dev/demo database from SQLite to real Postgres**
 (2026-08-27), fixing the recurring `database is locked` crash at its
 actual root rather than mitigating it further. The WAL-mode fix

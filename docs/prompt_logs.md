@@ -310,3 +310,44 @@ hardcoded/logged/exposed, and CAPTCHA must never be bypassed.
 
 **58.**
 > database in postgres is created now. verify and alter the framework to use postgres instead of sqllite
+
+**59.**
+> check why order summary is not updated?
+
+**60.**
+> where does data logs generated?
+
+**61.**
+> Create logs in the project folder itself and add it to gitignore
+
+**62.**
+> where is data stored?
+
+**63.**
+> restart the application
+
+**64.**
+> why the order summary is not updated?
+
+**65.**
+> try to build temporary tunnel again
+
+**66.**
+> I have refresha.in and joyjuice.in dns registered to our company's name. Each of this url runs our company's website. Can this be used for permanent tunnel building
+
+**66a.** `[choice]` equipment.joyjuice.in *(answer to an AskUserQuestion on which domain/subdomain to use for the Cloudflare subdomain-delegation setup)*
+
+**67.**
+> push the code on remote gitbub server
+> git remote add origin https://github.com/1206ashish656-prog/joyEquipmentManagementApp.git
+> git branch -M main
+> git push -u origin main
+
+*(Blocked by the permission classifier — outward-facing git push requires explicit approval; not yet completed.)*
+
+**68.**
+> Help me host this application on hostinger account. Is it possible to deploy this web application there?
+
+**69.**
+> *(Screenshot of Hostinger's VPS "Choose what to install" OS-selection screen)*
+> Suggest how to deploy it using KMI VPS on hostinger

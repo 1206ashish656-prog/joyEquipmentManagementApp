@@ -748,6 +748,13 @@ Full step-by-step walkthrough (account creation through first deploy
 through verification, written for a first-time cloud deployer):
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
+**Prefer full root-level control over a managed platform?** See
+[`docs/DEPLOYMENT_VPS.md`](docs/DEPLOYMENT_VPS.md) for a self-managed
+VPS path instead (verified against Hostinger KVM specifically) — same
+Dockerfile and `combined_worker.py`, expressed as three Docker Compose
+services with your own Nginx/TLS/firewall, instead of a managed
+platform's services + plugin.
+
 **Explicitly deferred for this first deployment** (per "continue
 building the remaining features later"): Alembic migrations (schema
 still created via `Base.metadata.create_all()`, run once by the
