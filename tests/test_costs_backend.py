@@ -477,6 +477,21 @@ def test_costs_page_shows_pending_recurring_candidates(client):
     assert "Generate 2 entries for 2026-08" in resp.text
 
 
+def test_recurring_costs_preview_shows_gst_breakdown_for_rent_only(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_venue(SessionLocal, "PNR Felicity", rent="25000.00")
+    _add_staff_with_salary(SessionLocal, "Priya", salary="30000.00")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/costs?recurring_period=2026-08")
+    assert resp.status_code == 200
+    assert "25000.00" in resp.text  # rent base amount
+    assert "4500.00" in resp.text  # rent GST (18% of 25000)
+    assert "29500.00" in resp.text  # rent total incl. GST
+    assert "30000.00" in resp.text  # salary, unaffected by GST
+
+
 def test_generate_recurring_costs_creates_entries(client):
     test_client, SessionLocal = client
     _add_user(SessionLocal, "admin@example.com", "admin")
@@ -489,7 +504,7 @@ def test_generate_recurring_costs_creates_entries(client):
         entry = session.execute(select(CostEntry)).scalar_one()
         assert entry.category == "Rent"
         assert entry.vendor_name == "PNR Felicity"
-        assert entry.amount == Decimal("25000.00")
+        assert entry.amount == Decimal("29500.00")  # 25000 + 18% GST
         assert entry.recurring_period == "2026-08"
 
 
@@ -517,7 +532,8 @@ def test_generate_recurring_costs_appears_in_raw_entries_and_rollup(client):
     resp = test_client.get("/costs?period=monthly&as_of=2026-08-15&show_raw_data=yes")
     assert resp.status_code == 200
     assert "PNR Felicity" in resp.text
-    assert "25000.00" in resp.text
+    assert "29500.00" in resp.text  # 25000 + 18% GST -- the actual stored/charged amount
+    assert "incl. 18% GST" in resp.text
 
 
 def test_operations_cannot_generate_recurring_costs(client):

@@ -145,7 +145,7 @@
 
 <section>
   <h2>Recurring Costs</h2>
-  <p class="callout">One Rent entry per active <a href="/venues">venue</a> with a monthly rent set, one Staff Salaries entry per active <a href="/staff">staff member</a> with a salary set — derived automatically from those lists, nothing retyped here. Generating is safe to click more than once: an already-generated venue/staff for a period is never duplicated.</p>
+  <p class="callout">One Rent entry per active <a href="/venues">venue</a> with a monthly rent set, one Staff Salaries entry per active <a href="/staff">staff member</a> with a salary set — derived automatically from those lists, nothing retyped here. Generating is safe to click more than once: an already-generated venue/staff for a period is never duplicated. Rent amounts include 18% GST, added on top of each venue's configured monthly rent.</p>
   <form method="get" action="/costs" class="order-filter-form" style="margin-bottom:10px;">
     <div class="filter-group">
       <label>Period
@@ -155,17 +155,19 @@
     <button type="submit">View</button>
   </form>
   <table class="equipment-table">
-    <thead><tr><th>Type</th><th>Name</th><th>Amount</th><th>Status</th></tr></thead>
+    <thead><tr><th>Type</th><th>Name</th><th>Base Amount</th><th>GST (18%)</th><th>Total Amount</th><th>Status</th></tr></thead>
     <tbody>
       {% for c in recurring_candidates %}
       <tr>
         <td>{{ "Rent" if c.category == "Rent" else "Salary" }}</td>
         <td>{{ c.label }}</td>
+        <td>₹{{ "%.2f"|format(c.base_amount) }}</td>
+        <td>{% if c.gst_amount %}₹{{ "%.2f"|format(c.gst_amount) }}{% else %}—{% endif %}</td>
         <td>₹{{ "%.2f"|format(c.amount) }}</td>
         <td>{% if c.already_generated %}<span class="badge badge-healthy">Already generated</span>{% else %}Pending{% endif %}</td>
       </tr>
       {% else %}
-      <tr><td colspan="4">No active venue has a monthly rent set and no active staff member has a monthly salary set — nothing to generate yet. Set one on <a href="/venues">Venues</a> or <a href="/staff">Staff & Leaves</a>.</td></tr>
+      <tr><td colspan="6">No active venue has a monthly rent set and no active staff member has a monthly salary set — nothing to generate yet. Set one on <a href="/venues">Venues</a> or <a href="/staff">Staff & Leaves</a>.</td></tr>
       {% endfor %}
     </tbody>
   </table>

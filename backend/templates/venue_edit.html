@@ -7,7 +7,7 @@
 <section class="status-panel">
   <form method="post" action="/venues/{{ venue.id }}/edit" class="stacked-form" style="margin: 0;">
     <label>Name<input type="text" name="name" value="{{ venue.name }}" required></label>
-    <label>Monthly Rent (₹) <span style="font-weight:400;color:var(--muted);">(leave blank if not charged rent)</span>
+    <label>Monthly Rent, excl. GST (₹) <span style="font-weight:400;color:var(--muted);">(leave blank if not charged rent; 18% GST is added automatically when generating{% if venue.monthly_rent is not none %} — currently ₹{{ "%.2f"|format(venue.monthly_rent * gst_multiplier) }} total{% endif %})</span>
       <input type="number" step="0.01" min="0" name="monthly_rent" value="{{ venue.monthly_rent if venue.monthly_rent is not none else '' }}">
     </label>
     <label class="checkbox-label"><input type="checkbox" name="active" {% if venue.active %}checked{% endif %}> Active</label>

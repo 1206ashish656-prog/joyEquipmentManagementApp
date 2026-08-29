@@ -26,11 +26,20 @@ periods -- an already-generated CostEntry for a past period is a real,
 historical record and is never rewritten by this module (it can still
 be corrected individually via the existing /costs/{id}/edit route,
 same as any manually-logged entry).
+
+Rent carries 18% GST (RENT_GST_RATE, per explicit request), added on
+top of Venue.monthly_rent at generation time -- the venue's configured
+rent stays the pre-GST base figure an admin negotiates/edits, and the
+generated CostEntry.amount is the actual GST-inclusive total payable.
+Staff salaries are never subject to GST. list_candidates() computes the
+GST-inclusive `amount` (what will actually be generated/charged) so the
+Cost Management preview table and the real generated entry can never
+show two different numbers for the same candidate.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -41,6 +50,11 @@ RENT_CATEGORY = "Rent"
 SALARY_CATEGORY = "Staff Salaries"
 VENUE_SOURCE = "venue_rent"
 STAFF_SOURCE = "staff_salary"
+RENT_GST_RATE = Decimal("0.18")
+
+
+def _round2(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 @dataclass
@@ -48,13 +62,18 @@ class RecurringCandidate:
     source_type: str  # VENUE_SOURCE | STAFF_SOURCE
     source_id: int
     label: str  # venue or staff name, for display
-    amount: Decimal
+    base_amount: Decimal  # pre-GST rent, or the salary as-is (no GST)
+    amount: Decimal  # what actually gets generated/charged -- GST-inclusive for rent
     already_generated: bool
     existing_entry_id: int | None = None
 
     @property
     def category(self) -> str:
         return RENT_CATEGORY if self.source_type == VENUE_SOURCE else SALARY_CATEGORY
+
+    @property
+    def gst_amount(self) -> Decimal:
+        return self.amount - self.base_amount
 
 
 def _period_start_date(period: str) -> str:
@@ -88,7 +107,8 @@ def list_candidates(db: Session, period: str) -> list[RecurringCandidate]:
     for v in venues:
         key = (VENUE_SOURCE, v.id)
         candidates.append(RecurringCandidate(
-            source_type=VENUE_SOURCE, source_id=v.id, label=v.name, amount=v.monthly_rent,
+            source_type=VENUE_SOURCE, source_id=v.id, label=v.name,
+            base_amount=v.monthly_rent, amount=_round2(v.monthly_rent * (1 + RENT_GST_RATE)),
             already_generated=key in existing, existing_entry_id=existing.get(key),
         ))
 
@@ -98,7 +118,8 @@ def list_candidates(db: Session, period: str) -> list[RecurringCandidate]:
     for s in staff_list:
         key = (STAFF_SOURCE, s.id)
         candidates.append(RecurringCandidate(
-            source_type=STAFF_SOURCE, source_id=s.id, label=s.name, amount=s.monthly_salary,
+            source_type=STAFF_SOURCE, source_id=s.id, label=s.name,
+            base_amount=s.monthly_salary, amount=s.monthly_salary,  # no GST on salaries
             already_generated=key in existing, existing_entry_id=existing.get(key),
         ))
 
@@ -123,7 +144,10 @@ def generate(db: Session, period: str, admin_id: int | None) -> int:
             # backend/api/costs.py's _resolve_category_and_vendor rule
             # for the Staff Salaries category on a manual entry too).
             vendor_name=None if c.source_type == STAFF_SOURCE else c.label,
-            item_name=c.label,
+            # The GST-inclusive amount is what's actually stored (see
+            # module docstring) -- noted directly in item_name so it's
+            # visible in the Raw Entries ledger without a schema change.
+            item_name=f"{c.label} (Rent incl. 18% GST)" if c.source_type == VENUE_SOURCE else c.label,
             amount=c.amount,
             created_by_user_id=admin_id,
             recurring_source_type=c.source_type,

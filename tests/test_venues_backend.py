@@ -165,3 +165,15 @@ def test_known_venue_names_datalist_sourced_from_venue_mapping(client):
     resp = test_client.get("/venues")
     assert resp.status_code == 200
     assert "PNR Felicity" in resp.text
+
+
+def test_venues_page_shows_gst_inclusive_total(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_venue(SessionLocal, "PNR Felicity", rent="25000.00")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/venues")
+    assert resp.status_code == 200
+    assert "25000.00" in resp.text  # base rent
+    assert "29500.00" in resp.text  # incl. 18% GST

@@ -41,9 +41,28 @@ def test_list_candidates_includes_active_venue_and_staff_with_amounts_set(db_ses
     candidates = list_candidates(db_session, "2026-08")
 
     labels = {(c.source_type, c.label, c.amount) for c in candidates}
-    assert (VENUE_SOURCE, "PNR Felicity", Decimal("25000.00")) in labels
-    assert (STAFF_SOURCE, "Priya", Decimal("30000.00")) in labels
+    assert (VENUE_SOURCE, "PNR Felicity", Decimal("29500.00")) in labels  # 25000 + 18% GST
+    assert (STAFF_SOURCE, "Priya", Decimal("30000.00")) in labels  # no GST on salaries
     assert all(not c.already_generated for c in candidates)
+
+
+def test_rent_candidate_carries_18_percent_gst(db_session):
+    _add_venue(db_session, "PNR Felicity", rent="25000.00")
+    candidates = list_candidates(db_session, "2026-08")
+
+    rent = next(c for c in candidates if c.source_type == VENUE_SOURCE)
+    assert rent.base_amount == Decimal("25000.00")
+    assert rent.amount == Decimal("29500.00")
+    assert rent.gst_amount == Decimal("4500.00")
+
+
+def test_salary_candidate_has_no_gst(db_session):
+    _add_staff(db_session, "Priya", salary="30000.00")
+    candidates = list_candidates(db_session, "2026-08")
+
+    salary = next(c for c in candidates if c.source_type == STAFF_SOURCE)
+    assert salary.base_amount == salary.amount == Decimal("30000.00")
+    assert salary.gst_amount == Decimal("0.00")
 
 
 def test_inactive_venue_excluded(db_session):
@@ -86,7 +105,10 @@ def test_generate_creates_one_entry_per_venue_and_staff(db_session):
     assert len(salary_entries) == 1
     assert salary_entries[0].vendor_name is None  # never applicable for salaries
     assert salary_entries[0].item_name == "Priya"
+    assert salary_entries[0].amount == Decimal("30000.00")  # no GST
     assert {e.vendor_name for e in rent_entries} == {"PNR Felicity", "Warehouse Site"}
+    assert {e.amount for e in rent_entries} == {Decimal("29500.00"), Decimal("21240.00")}  # +18% GST
+    assert all("incl. 18% GST" in e.item_name for e in rent_entries)
     assert all(e.recurring_period == "2026-08" for e in entries)
     assert all(e.date == "2026-08-01" for e in entries)
 
@@ -139,4 +161,4 @@ def test_editing_rent_after_generation_does_not_change_past_entry(db_session):
     db_session.flush()
 
     entry = db_session.execute(select(CostEntry)).scalar_one()
-    assert entry.amount == Decimal("25000.00")  # unchanged
+    assert entry.amount == Decimal("29500.00")  # unchanged (25000 + 18% GST at generation time)

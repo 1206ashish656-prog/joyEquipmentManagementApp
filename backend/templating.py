@@ -4,6 +4,7 @@ clear visual indicators for health state)."""
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
@@ -12,10 +13,16 @@ from backend.deps import home_url_for
 from db.models import HealthState
 from orders.mapping import format_ist
 from services.management_report import format_duration
+from services.recurring_costs import RENT_GST_RATE
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["home_url"] = home_url_for
+# venues.html/venue_edit.html show a GST-inclusive rent estimate --
+# Decimal doesn't support mixed arithmetic with a float literal
+# (`Decimal * 1.18` raises TypeError), so this is the Decimal multiplier
+# those templates actually use, rather than each one re-deriving it.
+templates.env.globals["gst_multiplier"] = Decimal("1") + RENT_GST_RATE
 # Not registered by core Jinja2 (only by Flask) -- needed for safely
 # embedding a Python string/value as a JS literal in an inline <script>.
 templates.env.filters["tojson"] = json.dumps
