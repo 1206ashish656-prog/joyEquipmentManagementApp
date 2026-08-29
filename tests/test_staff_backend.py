@@ -123,6 +123,46 @@ def test_create_staff_without_email_leaves_it_null(client):
         assert staff.email is None
 
 
+# --- Monthly salary (services/recurring_costs.py candidate source) ---
+
+def test_create_staff_with_monthly_salary(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _login(test_client, "admin@example.com")
+
+    test_client.post(
+        "/staff", data={"name": "Priya", "monthly_salary": "30000.00", "employment_start_date": "2026-06-01"},
+    )
+    with SessionLocal() as session:
+        staff = session.execute(select(Staff).where(Staff.name == "Priya")).scalar_one()
+        assert staff.monthly_salary == Decimal("30000.00")
+
+
+def test_create_staff_without_salary_leaves_it_null(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _login(test_client, "admin@example.com")
+
+    test_client.post("/staff", data={"name": "Priya", "employment_start_date": "2026-06-01"})
+    with SessionLocal() as session:
+        staff = session.execute(select(Staff).where(Staff.name == "Priya")).scalar_one()
+        assert staff.monthly_salary is None
+
+
+def test_edit_updates_monthly_salary(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    _login(test_client, "admin@example.com")
+
+    test_client.post(
+        f"/staff/{staff_id}/edit",
+        data={"name": "Priya", "monthly_salary": "35000.00", "employment_start_date": "2026-01-01", "employment_end_date": ""},
+    )
+    with SessionLocal() as session:
+        assert session.get(Staff, staff_id).monthly_salary == Decimal("35000.00")
+
+
 def test_offboarding_deactivates_matching_alert_recipient(client):
     test_client, SessionLocal = client
     _add_user(SessionLocal, "admin@example.com", "admin")

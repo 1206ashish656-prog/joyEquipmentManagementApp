@@ -41,6 +41,16 @@ def _deactivate_alert_recipient_for(db: Session, email: str | None) -> None:
         recipient.active = False
 
 
+def _parse_optional_decimal(raw: str) -> Decimal | None:
+    raw = raw.strip()
+    if not raw:
+        return None
+    try:
+        return Decimal(raw)
+    except InvalidOperation:
+        return None
+
+
 @router.get("/staff", response_class=HTMLResponse)
 def staff_page(
     request: Request,
@@ -107,6 +117,7 @@ def create_staff(
     department: str = Form(""),
     sub_department: str = Form(""),
     email: str = Form(""),
+    monthly_salary: str = Form(""),
     employment_start_date: str = Form(...),
     employment_end_date: str = Form(""),
     admin: User = Depends(require_admin),
@@ -120,6 +131,7 @@ def create_staff(
             department=department.strip() or None,
             sub_department=sub_department.strip() or None,
             email=resolved_email,
+            monthly_salary=_parse_optional_decimal(monthly_salary),
             employment_start_date=employment_start_date,
             employment_end_date=resolved_end_date,
         )
@@ -180,6 +192,7 @@ def update_staff(
     department: str = Form(""),
     sub_department: str = Form(""),
     email: str = Form(""),
+    monthly_salary: str = Form(""),
     employment_start_date: str = Form(...),
     employment_end_date: str = Form(""),
     admin: User = Depends(require_admin),
@@ -193,6 +206,7 @@ def update_staff(
     staff.department = department.strip() or None
     staff.sub_department = sub_department.strip() or None
     staff.email = email.strip().lower() or None
+    staff.monthly_salary = _parse_optional_decimal(monthly_salary)
     staff.employment_start_date = employment_start_date
     # Blank end date on edit is exactly how a mistaken "mark as left" gets
     # undone -- clearing it here makes the staff member active again, and

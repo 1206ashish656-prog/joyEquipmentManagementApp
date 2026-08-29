@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Edit Venue — Equipment Monitor{% endblock %}
+{% block content %}
+<h1>Edit Venue</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+<section class="status-panel">
+  <form method="post" action="/venues/{{ venue.id }}/edit" class="stacked-form" style="margin: 0;">
+    <label>Name<input type="text" name="name" value="{{ venue.name }}" required></label>
+    <label>Monthly Rent (₹) <span style="font-weight:400;color:var(--muted);">(leave blank if not charged rent)</span>
+      <input type="number" step="0.01" min="0" name="monthly_rent" value="{{ venue.monthly_rent if venue.monthly_rent is not none else '' }}">
+    </label>
+    <label class="checkbox-label"><input type="checkbox" name="active" {% if venue.active %}checked{% endif %}> Active</label>
+    <p style="font-size:0.85rem;color:var(--muted);margin:0;">Changing the rent only affects future months — any period already generated (Cost Management → Recurring Costs) keeps its original amount as a historical record. Deactivating removes this venue from future recurring-cost candidates without touching past entries.</p>
+    <button type="submit">Save Changes</button>
+  </form>
+  <p style="margin-top:14px;"><a href="/venues">← Back to Venues</a></p>
+</section>
+{% endblock %}

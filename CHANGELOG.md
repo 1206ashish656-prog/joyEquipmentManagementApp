@@ -9,6 +9,20 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Recurring Costs (rent + salaries), a new Venues admin page**
+(2026-08-30), per explicit request. New `/venues` page to onboard/edit
+venues and their monthly rent (new `Venue` table); `Staff` gained an
+optional `monthly_salary`. Cost Management's new "Recurring Costs"
+section derives one Rent entry per active venue and one Staff Salaries
+entry per active staff member straight from those two lists — nothing
+retyped, and the candidate list updates itself as venues/staff are
+onboarded, edited, or offboarded. Admin clicks "Generate" for a chosen
+month (defaults to the current one); safe to click more than once —
+`CostEntry` gained a unique-constrained `(recurring_source_type,
+recurring_source_id, recurring_period)` so a period is never
+double-generated. See README's "Recurring Costs" section for the
+manual migration note (new columns on `staff` and `cost_entry`).
+
 **Staff email + Alert Recipients quick-add + auto-removal on leaving**
 (2026-08-29), per explicit request — `Staff.email` (optional, new
 column) lets a staff member be added at `/staff` or `/staff/{id}/edit`

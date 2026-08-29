@@ -43,7 +43,7 @@
 <section>
   <h2>Staff Roster</h2>
   <table class="equipment-table">
-    <thead><tr><th>Name</th><th>Email</th><th>Department</th><th>Sub-department</th><th>Employment Start</th><th>Employment End</th><th>Total Advances</th><th></th><th></th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Email</th><th>Department</th><th>Sub-department</th><th>Monthly Salary</th><th>Employment Start</th><th>Employment End</th><th>Total Advances</th><th></th><th></th><th></th></tr></thead>
     <tbody>
       {% for s in staff_list %}
       <tr>
@@ -51,6 +51,7 @@
         <td>{{ s.email or "—" }}</td>
         <td>{{ s.department or "—" }}</td>
         <td>{{ s.sub_department or "—" }}</td>
+        <td>{% if s.monthly_salary is not none %}₹{{ "%.2f"|format(s.monthly_salary) }}{% else %}— not set —{% endif %}</td>
         <td>{{ s.employment_start_date }}</td>
         <td>{{ s.employment_end_date or "— active —" }}</td>
         <td>₹{{ "%.2f"|format(advance_totals.get(s.id, 0)) }}</td>
@@ -70,7 +71,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="10">No staff added yet.</td></tr>
+      <tr><td colspan="11">No staff added yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -96,6 +97,9 @@
       <datalist id="sub-department-options">
         {% for d in known_sub_departments %}<option value="{{ d }}">{% endfor %}
       </datalist>
+      <label>Monthly Salary (₹) <span style="font-weight:400;color:var(--muted);">(optional — set this to include them in Cost Management's monthly Recurring Costs)</span>
+        <input type="number" step="0.01" min="0" name="monthly_salary">
+      </label>
       <label>Employment start date<input type="date" name="employment_start_date" value="{{ today }}" required></label>
       <label>Employment end date (leave blank if still active)<input type="date" name="employment_end_date"></label>
       <button type="submit">Add Staff</button>

@@ -6,6 +6,11 @@ as Order Summary (backend/period_utils.py), breakdown by
 category/vendor/item name in any combination (costs/rollup.py) — and
 view/filter/edit/delete the underlying raw entries, since a rollup total
 alone doesn't let an admin fix or remove a single bad entry.
+
+Also hosts "Recurring Costs" (services/recurring_costs.py): one Rent
+entry per active Venue, one Staff Salaries entry per active Staff
+member, generated on admin request for a chosen month rather than
+retyped every time.
 """
 from __future__ import annotations
 
@@ -21,8 +26,26 @@ from backend.deps import get_db, require_admin
 from backend.period_utils import PERIODS, period_range
 from backend.templating import templates
 from db.models import STANDARD_COST_CATEGORIES, UNSPECIFIED_VENDOR, CostEntry, User
+from services import recurring_costs
 
 router = APIRouter()
+
+RECURRING_PERIOD_LENGTH = 7  # 'YYYY-MM'
+
+
+def _resolve_recurring_period(raw: str | None) -> str:
+    """Falls back to the current calendar month on anything malformed —
+    this only ever comes from our own <input type="month"> field, but
+    validated defensively like every other date/period input in this
+    app (e.g. staff.py's year/month parsing)."""
+    candidate = (raw or "").strip()
+    if len(candidate) == RECURRING_PERIOD_LENGTH:
+        try:
+            date_cls.fromisoformat(f"{candidate}-01")
+            return candidate
+        except ValueError:
+            pass
+    return date_cls.today().strftime("%Y-%m")
 
 STAFF_SALARIES_CATEGORY = "Staff Salaries"
 RAW_ROWS_LIMIT = 300  # a hard cap so one huge period doesn't render an unbounded table
@@ -105,6 +128,9 @@ def costs_summary(
     else:
         raw_rows, raw_truncated = [], False
 
+    recurring_period = _resolve_recurring_period(q.get("recurring_period"))
+    recurring_candidates = recurring_costs.list_candidates(db, recurring_period)
+
     return templates.TemplateResponse(
         request,
         "costs.html",
@@ -134,6 +160,9 @@ def costs_summary(
             "standard_categories": STANDARD_COST_CATEGORIES,
             "staff_salaries_category": STAFF_SALARIES_CATEGORY,
             "today": date_cls.today().isoformat(),
+            "recurring_period": recurring_period,
+            "recurring_candidates": recurring_candidates,
+            "recurring_pending_count": sum(1 for c in recurring_candidates if not c.already_generated),
         },
     )
 
@@ -235,3 +264,14 @@ def delete_cost_entry(
     if entry is not None:
         db.delete(entry)
     return RedirectResponse(url="/costs", status_code=303)
+
+
+@router.post("/costs/recurring/generate")
+def generate_recurring_costs(
+    period: str = Form(...),
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    resolved_period = _resolve_recurring_period(period)
+    recurring_costs.generate(db, resolved_period, admin.id)
+    return RedirectResponse(url=f"/costs?recurring_period={resolved_period}", status_code=303)

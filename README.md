@@ -522,6 +522,45 @@ mistaken "Mark as left" — a cleared end date makes the staff member
 active again, and the "Mark as left" action reappears for them on the
 roster (same `not employment_end_date` check that already drove it).
 
+**Recurring Costs (2026-08-30)** — Cost Management gained a "Recurring
+Costs" section (`services/recurring_costs.py`) that derives what's due
+for a chosen month directly from two live lists rather than an admin
+retyping the same figures every month: one **Rent** entry per active
+**Venue** (new admin page, `/venues`, `db/models.py`'s `Venue` — its own
+master list, distinct from `VenueMapping`'s machine→venue-name scoping
+mapping, since that has no "one row per venue," rent, or active
+concept) with a monthly rent set, and one **Staff Salaries** entry per
+active staff member with `Staff.monthly_salary` set. The candidate list
+always reflects the current Venue/Staff tables — onboard a venue or
+staff member, or edit their rent/salary, and the next "Generate" run
+picks it up automatically; offboarding a staff member or deactivating a
+venue removes them from future candidates without touching past
+entries. **Admin-triggered only** (a "Generate N entries for
+YYYY-MM" button) — nothing in this app writes a financial record on a
+timer. Idempotent by construction: `CostEntry` gained
+`recurring_source_type` / `recurring_source_id` / `recurring_period`
+columns with a DB-level unique constraint, so Generate is always safe
+to click again — an already-generated venue/staff for that period is
+skipped, never duplicated. Editing a venue's rent or a staff member's
+salary only affects **future** months; an already-generated entry is a
+real historical record, editable individually like any other entry via
+`/costs/{id}/edit`, never silently rewritten.
+
+Migration note for an **existing** deployment (same "no Alembic"
+situation as `venue_provider`/`is_super_admin`/`email` above): `Venue`
+is a brand-new table (free via `create_all()`), but `Staff.monthly_salary`
+and `CostEntry`'s three `recurring_*` columns are new columns on
+existing live tables and need:
+```sql
+ALTER TABLE staff ADD COLUMN monthly_salary NUMERIC(12, 2);
+ALTER TABLE cost_entry ADD COLUMN recurring_source_type VARCHAR(32);
+ALTER TABLE cost_entry ADD COLUMN recurring_source_id INTEGER;
+ALTER TABLE cost_entry ADD COLUMN recurring_period VARCHAR(7);
+ALTER TABLE cost_entry ADD CONSTRAINT uq_cost_entry_recurring
+  UNIQUE (recurring_source_type, recurring_source_id, recurring_period);
+```
+A fresh install gets all of this for free via `create_all()`.
+
 ## Fault Information detail in alerts (2026-08-29)
 
 A malfunction alert's coarse `fault_type` text (e.g. "Fault") never told

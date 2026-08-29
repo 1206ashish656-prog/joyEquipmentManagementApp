@@ -13,7 +13,7 @@ from sqlalchemy.pool import StaticPool
 import db.base as db_base
 from backend.main import app
 from backend.security import hash_password
-from db.models import Base, CostEntry, User
+from db.models import Base, CostEntry, Staff, User, Venue
 
 
 @pytest.fixture()
@@ -447,3 +447,100 @@ def test_edit_entry_can_clear_item_name(client):
     assert resp.status_code == 303
     with SessionLocal() as session:
         assert session.get(CostEntry, entry_id).item_name == ""
+
+
+# --- Recurring Costs (services/recurring_costs.py) ---
+
+def _add_venue(SessionLocal, name, rent="25000.00"):
+    with SessionLocal() as session:
+        session.add(Venue(name=name, monthly_rent=Decimal(rent), active=True))
+        session.commit()
+
+
+def _add_staff_with_salary(SessionLocal, name, salary="30000.00"):
+    with SessionLocal() as session:
+        session.add(Staff(name=name, employment_start_date="2026-01-01", monthly_salary=Decimal(salary)))
+        session.commit()
+
+
+def test_costs_page_shows_pending_recurring_candidates(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_venue(SessionLocal, "PNR Felicity")
+    _add_staff_with_salary(SessionLocal, "Priya")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/costs?recurring_period=2026-08")
+    assert resp.status_code == 200
+    assert "PNR Felicity" in resp.text
+    assert "Priya" in resp.text
+    assert "Generate 2 entries for 2026-08" in resp.text
+
+
+def test_generate_recurring_costs_creates_entries(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_venue(SessionLocal, "PNR Felicity", rent="25000.00")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.post("/costs/recurring/generate", data={"period": "2026-08"}, follow_redirects=False)
+    assert resp.status_code == 303
+    with SessionLocal() as session:
+        entry = session.execute(select(CostEntry)).scalar_one()
+        assert entry.category == "Rent"
+        assert entry.vendor_name == "PNR Felicity"
+        assert entry.amount == Decimal("25000.00")
+        assert entry.recurring_period == "2026-08"
+
+
+def test_generate_recurring_costs_twice_does_not_duplicate(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_venue(SessionLocal, "PNR Felicity")
+    _login(test_client, "admin@example.com")
+
+    test_client.post("/costs/recurring/generate", data={"period": "2026-08"})
+    test_client.post("/costs/recurring/generate", data={"period": "2026-08"})
+
+    with SessionLocal() as session:
+        assert len(session.execute(select(CostEntry)).scalars().all()) == 1
+
+
+def test_generate_recurring_costs_appears_in_raw_entries_and_rollup(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_venue(SessionLocal, "PNR Felicity", rent="25000.00")
+    _login(test_client, "admin@example.com")
+
+    test_client.post("/costs/recurring/generate", data={"period": "2026-08"})
+
+    resp = test_client.get("/costs?period=monthly&as_of=2026-08-15&show_raw_data=yes")
+    assert resp.status_code == 200
+    assert "PNR Felicity" in resp.text
+    assert "25000.00" in resp.text
+
+
+def test_operations_cannot_generate_recurring_costs(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "ops@example.com", "operations")
+    _add_venue(SessionLocal, "PNR Felicity")
+    _login(test_client, "ops@example.com")
+
+    resp = test_client.post("/costs/recurring/generate", data={"period": "2026-08"})
+    assert resp.status_code == 403
+    with SessionLocal() as session:
+        assert session.execute(select(CostEntry)).scalars().all() == []
+
+
+def test_generate_recurring_costs_falls_back_to_current_month_on_bad_period(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_venue(SessionLocal, "PNR Felicity")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.post("/costs/recurring/generate", data={"period": "not-a-period"}, follow_redirects=False)
+    assert resp.status_code == 303
+    with SessionLocal() as session:
+        entry = session.execute(select(CostEntry)).scalar_one()
+        assert entry.recurring_period is not None
+        assert len(entry.recurring_period) == 7  # a real 'YYYY-MM', not the malformed input
