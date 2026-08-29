@@ -22,13 +22,21 @@ from backend.security import hash_password
 from db import base as db_base
 from db.models import User
 
-# Exactly one initial super admin (able to grant/revoke the admin role
+# Exactly one designated super admin (able to grant/revoke the admin role
 # itself, see db/models.py's User.is_super_admin) -- the user's explicit
 # choice. Promote/demote anyone else via /users/{id}/edit once this
 # account exists and can log in. Re-running this script for this email
 # always restores the flag if it was somehow cleared; running it for any
 # OTHER email never touches this account's flag.
-SUPER_ADMIN_EMAIL = "1206ashish656@gmail.com"
+#
+# 2026-08-29: reassigned from 1206ashish656@gmail.com (now deactivated,
+# per explicit request) to support@refresha.in -- both changes were
+# applied directly against the running app's database at the time; this
+# constant is updated to match so a future re-run of this script (e.g.
+# a password reset) reflects the current real designation instead of
+# silently re-granting super-admin rights to the old, deactivated
+# account.
+SUPER_ADMIN_EMAIL = "support@refresha.in"
 
 
 def main() -> None:

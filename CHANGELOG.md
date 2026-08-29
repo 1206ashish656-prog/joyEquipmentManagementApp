@@ -9,6 +9,13 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Super admin reassigned to support@refresha.in** (2026-08-29), per
+explicit request — the original seed account, `1206ashish656@gmail.com`,
+was deactivated in the same change. `db/seed_admin.py`'s
+`SUPER_ADMIN_EMAIL` constant updated to match, so a future re-run
+reflects the current designation rather than the old one. See README's
+updated "Super admin" section.
+
 **Malfunction alerts now carry real per-component fault detail**
 (2026-08-29) — per explicit request, retrieved from the target
 application's own Equipment Management → Fault Information tab

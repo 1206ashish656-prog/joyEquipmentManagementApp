@@ -443,9 +443,20 @@ super admin can touch the `admin` role itself. Same "no Alembic"
 situation as `venue_provider` above — an **existing** deployment needs
 the same kind of manual patch: `ALTER TABLE users ADD COLUMN
 is_super_admin BOOLEAN NOT NULL DEFAULT FALSE`, then re-run
-`python -m db.seed_admin --email 1206ashish656@gmail.com --name "..." --password "..."`
-to mark that account as the (one, explicitly chosen) initial super
-admin. A fresh install gets the column for free via `create_all()`.
+`python -m db.seed_admin --email <the designated super admin's email> --name "..." --password "..."`
+to mark that account as the (one, explicitly chosen) super admin. A
+fresh install gets the column for free via `create_all()`.
+
+**Update 2026-08-29**: the designated super admin is now
+`support@refresha.in` (`db/seed_admin.py`'s `SUPER_ADMIN_EMAIL`) —
+reassigned from the original seed account, `1206ashish656@gmail.com`,
+which was deactivated (`User.active = False`) in the same change, per
+explicit request. A deactivated account is fully locked out (login and
+every session-authenticated route check `User.active` —
+`backend/api/auth.py`, `backend/deps.py`) regardless of its role or
+`is_super_admin` flag; the flag itself was deliberately left set on the
+deactivated account (harmless while inactive, and avoids rewriting
+history for no functional reason) rather than cleared.
 
 ## Cost Management and Staff & Leave Management (admin-only)
 
