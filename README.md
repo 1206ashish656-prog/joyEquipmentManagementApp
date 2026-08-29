@@ -561,6 +561,56 @@ ALTER TABLE cost_entry ADD CONSTRAINT uq_cost_entry_recurring
 ```
 A fresh install gets all of this for free via `create_all()`.
 
+## Senior Management Report (2026-08-30, admin-only, `/reports/management`)
+
+An aggregated + monthly breakdown of sales/revenue/cost/profit, venue
+performance ranked by sales volume, and per-machine downtime by time of
+day, downloadable as a PDF — `services/management_report.py` computes
+it (pure DB logic, no HTTP), `backend/api/reports.py` presents it (an
+on-screen preview and a PDF export, gated behind the existing
+`require_admin` dependency, no new role).
+
+**Cost/profit is company-wide only.** `CostEntry` has no per-venue or
+per-machine link at all (Rent ties to a `Venue`, but every other
+category — Oranges, Glass, Straws, Salaries, etc. — ties to nothing) so
+there's no honest way to attribute cost, and therefore profit, to one
+machine or venue without fabricating an allocation. Venue performance
+is ranked by **sales volume only** (explicit requirement: "based on
+sales number") — this sidesteps the gap entirely. Scoping the report to
+one machine (the "Machine" dropdown, or `?equipment_id=`) shows that
+machine's own sales and downtime but explicitly omits cost/profit and
+venue ranking, with a note explaining why, rather than silently
+attaching a company-wide number to one machine.
+
+**"Outperforming"/"Underperforming"** venues are relative to the
+average orders-per-venue across all venues in the selected period, not
+a fixed target — documented directly in the report for transparency.
+
+**Downtime by time of day**: each `FaultIncident`'s duration (clipped
+to the selected period, same clipping idiom as `staff/leave_summary.py`'s
+month-boundary handling; a still-active incident counts through "now")
+is split across Morning (06:00–12:00) / Afternoon (12:00–17:00) /
+Evening (17:00–21:00) / Night (21:00–06:00) in **IST**, this app's
+established reporting timezone — an incident spanning multiple days or
+crossing midnight is walked day-by-day and correctly merged into one
+Night total rather than reported as two separate fragments.
+
+**PDF export** uses Playwright's Chromium — already a hard dependency
+of this project (`monitoring/browser_manager.py`) with the browser
+already downloaded and verified working in this environment — rather
+than adding a new PDF library (WeasyPrint needs GTK/Pango native
+libraries that are painful to install on Windows; reportlab/fpdf2 would
+mean hand-laying-out tables instead of reusing the existing HTML/CSS).
+A throwaway headless Chromium instance renders a self-contained HTML
+document (`management_report_pdf.html` — inlined CSS, since
+`page.set_content()` has no live server context for `/static` to
+resolve against) built from the exact same
+`management_report_content.html` partial the on-screen preview uses,
+so the two can never drift apart. This is completely independent of
+`monitoring/browser_manager.py`'s persistent jwintell.com session
+browser — a fresh instance per download, closed immediately after,
+never touching the saved target-application session.
+
 ## Fault Information detail in alerts (2026-08-29)
 
 A malfunction alert's coarse `fault_type` text (e.g. "Fault") never told

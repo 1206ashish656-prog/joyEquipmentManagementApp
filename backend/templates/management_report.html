@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Management Report — Equipment Monitor{% endblock %}
+{% block content %}
+<p><a id="download-pdf-link" href="/reports/management/pdf?period={{ period }}&as_of={{ as_of }}&start={{ start }}&end={{ end }}&equipment_id={{ equipment_id }}" style="float:right;">⬇ Download PDF</a></p>
+
+<section class="status-panel">
+  <form method="get" action="/reports/management" class="order-filter-form" id="filter-form">
+    <div class="filter-group">
+      <label>Period
+        <select name="period" id="period-select">
+          {% for p in ["daily", "weekly", "monthly", "ytd", "custom"] %}
+          <option value="{{ p }}" {% if p == period %}selected{% endif %}>{{ "Custom range" if p == "custom" else p|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label id="as-of-field">As of
+        <input type="date" name="as_of" value="{{ as_of }}">
+      </label>
+      <label id="start-field" style="display:none;">Start
+        <input type="date" name="start" value="{{ start }}">
+      </label>
+      <label id="end-field" style="display:none;">End
+        <input type="date" name="end" value="{{ end }}">
+      </label>
+    </div>
+    <div class="filter-group">
+      <label>Machine
+        <select name="equipment_id">
+          <option value="">— All Machines —</option>
+          {% for e in equipment_list %}
+          <option value="{{ e.id }}" {% if equipment_id == e.id %}selected{% endif %}>{{ e.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <button type="submit">View Report</button>
+  </form>
+</section>
+
+{% include "management_report_content.html" %}
+
+<script>
+  (function () {
+    var periodSelect = document.getElementById("period-select");
+    var asOfField = document.getElementById("as-of-field");
+    var startField = document.getElementById("start-field");
+    var endField = document.getElementById("end-field");
+    function syncPeriod() {
+      var custom = periodSelect.value === "custom";
+      asOfField.style.display = custom ? "none" : "flex";
+      startField.style.display = custom ? "flex" : "none";
+      endField.style.display = custom ? "flex" : "none";
+    }
+    periodSelect.addEventListener("change", syncPeriod);
+    syncPeriod();
+
+    // Keep the "Download PDF" link's query string in sync with whatever
+    // the form currently has selected, so it always exports exactly
+    // what's on screen rather than a stale first-load state.
+    var form = document.getElementById("filter-form");
+    var pdfLink = document.getElementById("download-pdf-link");
+    function syncPdfLink() {
+      var params = new URLSearchParams(new FormData(form));
+      pdfLink.href = "/reports/management/pdf?" + params.toString();
+    }
+    form.addEventListener("change", syncPdfLink);
+    syncPdfLink();
+  })();
+</script>
+{% endblock %}

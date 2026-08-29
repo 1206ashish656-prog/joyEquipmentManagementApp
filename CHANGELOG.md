@@ -9,6 +9,19 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Senior Management Report, downloadable as a PDF** (2026-08-30,
+admin-only, `/reports/management`), per explicit request. Aggregated +
+monthly sales/revenue/cost/profit, venues ranked "Outperforming" /
+"Underperforming" by sales volume (relative to the period's average),
+and per-machine downtime broken down by time of day (Morning/Afternoon/
+Evening/Night, IST). Optional machine scope (`?equipment_id=`) shows
+that machine's sales/downtime only — cost/profit and venue ranking are
+company-wide-only by nature (`CostEntry` has no per-machine or per-venue
+link) and are explicitly omitted, with a note, rather than faked. PDF
+export renders via Playwright's Chromium (already a project dependency)
+— no new PDF library added. See README's "Senior Management Report"
+section.
+
 **Recurring Costs (rent + salaries), a new Venues admin page**
 (2026-08-30), per explicit request. New `/venues` page to onboard/edit
 venues and their monthly rent (new `Venue` table); `Staff` gained an

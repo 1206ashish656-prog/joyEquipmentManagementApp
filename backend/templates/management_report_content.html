@@ -1,0 +1,96 @@
+{# Shared report body, included by both management_report.html (the
+   on-screen admin page) and management_report_pdf.html (the standalone
+   document rendered to PDF via services/report_pdf.py) — one source of
+   truth so the PDF always matches what the admin previewed. Expects
+   `report` (services/management_report.py's ManagementReport) in
+   context. #}
+<h1>Senior Management Report</h1>
+<table class="kv">
+  <tr><td>Period</td><td>{{ report.start }} to {{ report.end }}</td></tr>
+  <tr><td>Scope</td><td>{{ report.equipment_scope }}</td></tr>
+  <tr><td>Generated</td><td>{{ generated_at | ist }}</td></tr>
+</table>
+
+<section class="counts" style="grid-template-columns: repeat({{ 4 if report.cost_profit_available else 2 }}, 1fr);">
+  <div class="count-tile"><div class="n">{{ report.total_orders }}</div><div class="label">Total Sales (Orders)</div></div>
+  <div class="count-tile"><div class="n">₹{{ "%.2f"|format(report.total_revenue) }}</div><div class="label">Total Revenue</div></div>
+  {% if report.cost_profit_available %}
+  <div class="count-tile"><div class="n">₹{{ "%.2f"|format(report.total_cost) }}</div><div class="label">Total Cost</div></div>
+  <div class="count-tile"><div class="n">₹{{ "%.2f"|format(report.total_profit) }}</div><div class="label">Total Profit</div></div>
+  {% endif %}
+</section>
+{% if not report.cost_profit_available %}
+<p class="callout">Cost and profit are only meaningful company-wide — costs (rent, salaries, raw materials) aren't recorded per machine — so they're omitted when the report is scoped to one machine. Run this report for "All Machines" to see cost/profit.</p>
+{% endif %}
+
+<section>
+  <h2>Monthly Breakdown</h2>
+  <table class="equipment-table">
+    <thead>
+      <tr>
+        <th>Month</th><th>Orders</th><th>Revenue</th>
+        {% if report.cost_profit_available %}<th>Cost</th><th>Profit</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in report.monthly %}
+      <tr>
+        <td>{{ m.month }}</td>
+        <td>{{ m.orders }}</td>
+        <td>₹{{ "%.2f"|format(m.revenue) }}</td>
+        {% if report.cost_profit_available %}
+        <td>₹{{ "%.2f"|format(m.cost) }}</td>
+        <td>₹{{ "%.2f"|format(m.profit) }}</td>
+        {% endif %}
+      </tr>
+      {% else %}
+      <tr><td colspan="5">No data in this period.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% if report.venue_performance %}
+<section>
+  <h2>Venue Performance (ranked by sales volume)</h2>
+  <p class="callout">"Outperforming"/"Underperforming" is relative to the average orders-per-venue across all venues in this period — not a fixed target.</p>
+  <table class="equipment-table">
+    <thead><tr><th>Venue</th><th>Orders</th><th>Performance</th></tr></thead>
+    <tbody>
+      {% for v in report.venue_performance %}
+      <tr>
+        <td>{{ v.venue }}</td>
+        <td>{{ v.orders }}</td>
+        <td>
+          {% if v.performance == "Outperforming" %}<span class="badge badge-healthy">Outperforming</span>
+          {% elif v.performance == "Underperforming" %}<span class="badge badge-malfunction">Underperforming</span>
+          {% else %}<span class="badge badge-unknown">Average</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section>
+  <h2>Downtime per Machine</h2>
+  <table class="equipment-table">
+    <thead><tr><th>Machine</th><th>Total Downtime</th><th>Morning</th><th>Afternoon</th><th>Evening</th><th>Night</th></tr></thead>
+    <tbody>
+      {% for d in report.downtime %}
+      <tr>
+        <td>{{ d.equipment_name }}</td>
+        <td>{{ d.total_seconds | duration }}</td>
+        <td>{{ d.by_time_of_day.get("Morning", 0) | duration }}</td>
+        <td>{{ d.by_time_of_day.get("Afternoon", 0) | duration }}</td>
+        <td>{{ d.by_time_of_day.get("Evening", 0) | duration }}</td>
+        <td>{{ d.by_time_of_day.get("Night", 0) | duration }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">No downtime recorded in this period.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>

@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from backend.deps import home_url_for
 from db.models import HealthState
 from orders.mapping import format_ist
+from services.management_report import format_duration
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -27,6 +28,7 @@ templates.env.filters["tojson"] = json.dumps
 # tables) -- this is just registering it as a Jinja filter under a
 # shorter name for templates to use as `{{ value | ist }}`.
 templates.env.filters["ist"] = format_ist
+templates.env.filters["duration"] = format_duration
 
 _HEALTH_EMOJI = {
     HealthState.HEALTHY: "🟢",
