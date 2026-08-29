@@ -72,6 +72,43 @@ def test_orders_summary_page_loads_with_no_data(client):
     assert "No order data cached" in resp.text
 
 
+# --- "Last updated" (backend/api/orders.py's _last_updated_at) ---
+# Surfaces OrderSummaryRun.completed_at so it's obvious the numbers are
+# live, not a stale one-time snapshot -- always paired with a fixed note
+# naming the actual refresh cadence (orders/realtime_worker.py's
+# DEFAULT_INTERVAL_SECONDS = 300).
+
+def test_orders_summary_shows_last_updated_time_and_refresh_note(client):
+    from datetime import datetime, timezone
+
+    test_client, SessionLocal = client
+    _seed_user(SessionLocal)
+    _seed_order_summary(SessionLocal, "2026-08-23", "NEXUS", "120.00", "UPI", n=10)
+    with SessionLocal() as session:
+        run = session.query(OrderSummaryRun).filter_by(date="2026-08-23").one()
+        run.completed_at = datetime(2026, 8, 23, 10, 15, 0, tzinfo=timezone.utc)
+        session.commit()
+    _login(test_client)
+
+    resp = test_client.get("/orders/summary?period=daily&as_of=2026-08-23")
+    assert resp.status_code == 200
+    assert "Last updated" in resp.text
+    assert "auto-refreshes every 5 minutes" in resp.text
+    assert "23 Aug 2026" in resp.text  # the seeded completed_at, IST-formatted
+
+
+def test_orders_summary_last_updated_falls_back_gracefully_with_no_data(client):
+    """No OrderSummaryRun exists at all yet -- must render "—", not crash."""
+    test_client, SessionLocal = client
+    _seed_user(SessionLocal)
+    _login(test_client)
+
+    resp = test_client.get("/orders/summary")
+    assert resp.status_code == 200
+    assert "Last updated" in resp.text
+    assert "auto-refreshes every 5 minutes" in resp.text
+
+
 def test_orders_summary_daily_shows_machine_breakdown(client):
     test_client, SessionLocal = client
     _seed_user(SessionLocal)

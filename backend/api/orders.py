@@ -38,6 +38,17 @@ def _latest_available_date(db: Session) -> str | None:
     ).scalar_one_or_none()
 
 
+def _last_updated_at(db: Session):
+    """Most recent successful OrderSummaryRun.completed_at across every
+    date -- in practice this is always today's row, since
+    orders/realtime_worker.py re-runs it on every refresh cycle
+    (DEFAULT_INTERVAL_SECONDS = 300). Shown on the page so it's obvious
+    the numbers are live, not a stale one-time snapshot."""
+    return db.execute(
+        select(func.max(OrderSummaryRun.completed_at)).where(OrderSummaryRun.status == OrderSummaryRunStatus.SUCCESS)
+    ).scalar_one_or_none()
+
+
 def _venue_machines(db: Session, venue_provider: str) -> list[str]:
     """Machine names (OrderSummary.device_app values) mapped to a given
     venue_provider — case-insensitively, since the target app isn't
@@ -113,6 +124,7 @@ def orders_summary(
     by_pay_type = q.get("by_pay_type", "0") == "1"
 
     latest = _latest_available_date(db)
+    last_updated_at = _last_updated_at(db)
     as_of = q.get("as_of") or latest or date_cls.today().isoformat()
 
     start, end = period_range(period, as_of, start=q.get("start"), end=q.get("end"))
@@ -169,6 +181,7 @@ def orders_summary(
             "table_rows": table_rows,
             "overall_row": overall_row,
             "latest_available_date": latest,
+            "last_updated_at": last_updated_at,
             "has_data": bool(rows),
             "venue_provider": user.venue_provider,
             "venue_unassigned": venue_unassigned,

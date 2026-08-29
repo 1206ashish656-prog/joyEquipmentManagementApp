@@ -41,6 +41,7 @@
     {% endif %}
     <tr><td>Date range</td><td>{{ start }}{% if end != start %} to {{ end }}{% endif %}</td></tr>
     <tr><td>Latest data available</td><td>{{ latest_available_date or "—" }}</td></tr>
+    <tr><td>Last updated</td><td>{{ last_updated_at | ist }} <span style="color: var(--muted);">(auto-refreshes every 5 minutes)</span></td></tr>
     <tr><td>Breakdown</td><td>{{ group_by_labels|join(", ") }}</td></tr>
   </table>
 </section>
