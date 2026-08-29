@@ -25,6 +25,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -597,3 +598,50 @@ class InventoryLogEntry(Base):
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+# --- Senior Management Report generation jobs (admin-only, see
+# backend/api/reports.py + services/report_job_worker.py) ---
+#
+# Per explicit request: the report's computation and PDF rendering run
+# in the background worker process (services/report_job_worker.py,
+# wired into monitoring/combined_worker.py as a third loop), never
+# inline in a web request -- "an isolated report generation process."
+# The web process only ever creates a PENDING row here and later reads
+# it back; it never calls services/management_report.py or
+# services/report_pdf.py itself.
+
+
+class ReportJobStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+
+
+_report_job_status_type = Enum(ReportJobStatus, name="report_job_status", native_enum=False, length=16)
+
+
+class ReportJob(Base):
+    __tablename__ = "report_job"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    requested_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    # The exact request, re-resolved into a concrete date range at
+    # creation time (backend/period_utils.py's period_range()) so the
+    # worker never needs to re-interpret "as of today" after the fact.
+    period: Mapped[str] = mapped_column(String(16))
+    as_of: Mapped[str] = mapped_column(String(10))
+    start: Mapped[str] = mapped_column(String(10))
+    end: Mapped[str] = mapped_column(String(10))
+    equipment_id: Mapped[int | None] = mapped_column(ForeignKey("equipment.id"), nullable=True)  # NULL = all machines
+    status: Mapped[ReportJobStatus] = mapped_column(_report_job_status_type, default=ReportJobStatus.PENDING, index=True)
+    # Stored directly in Postgres rather than on disk -- this app has no
+    # other on-disk file-storage convention, a report PDF is on the
+    # order of tens of KB, and keeping it in the same database as
+    # everything else means one backup covers it too, with no separate
+    # file-lifecycle/cleanup concern.
+    pdf_data: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

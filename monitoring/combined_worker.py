@@ -1,9 +1,14 @@
 """
 Combined process for cloud deployment: runs monitoring.worker's
-equipment-polling loop and orders.realtime_worker's order-refresh loop
-CONCURRENTLY in one process, so they share one container filesystem —
-and therefore one Playwright session file — instead of needing session
-state duplicated across two separately-deployed services.
+equipment-polling loop, orders.realtime_worker's order-refresh loop,
+and services.report_job_worker's Senior Management Report job loop
+CONCURRENTLY in one process, so the first two share one container
+filesystem — and therefore one Playwright session file — instead of
+needing session state duplicated across two separately-deployed
+services. The report job loop shares nothing session-related with the
+other two; it's here per explicit request for "an isolated report
+generation process" that still runs unattended in production without
+a fourth deployed service.
 
 Why this exists: only monitoring.worker ever re-authenticates (the
 Playwright flow in worker.py's _reauthenticate()), and keeps its own
@@ -36,31 +41,40 @@ import logging
 from monitoring.worker import build_context, run_forever
 from orders.realtime_worker import DEFAULT_INTERVAL_SECONDS as ORDERS_DEFAULT_INTERVAL_SECONDS
 from orders.realtime_worker import run_loop as run_orders_loop
+from services.report_job_worker import DEFAULT_INTERVAL_SECONDS as REPORTS_DEFAULT_INTERVAL_SECONDS
+from services.report_job_worker import run_loop as run_reports_loop
 
 logger = logging.getLogger("monitoring.combined_worker")
 
 
 async def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Run the equipment-monitoring loop and the orders-refresh loop together in one process"
+        description="Run the equipment-monitoring, orders-refresh, and report-job loops together in one process"
     )
     parser.add_argument("--loop", action="store_true", required=True, help="Required — this process only makes sense running forever")
     parser.add_argument(
         "--orders-interval", type=int, default=ORDERS_DEFAULT_INTERVAL_SECONDS,
         help=f"Seconds between orders refreshes (default {ORDERS_DEFAULT_INTERVAL_SECONDS})",
     )
+    parser.add_argument(
+        "--reports-interval", type=int, default=REPORTS_DEFAULT_INTERVAL_SECONDS,
+        help=f"Seconds between report-job polls (default {REPORTS_DEFAULT_INTERVAL_SECONDS})",
+    )
     args = parser.parse_args()
 
     ctx = build_context()
-    logger.info("Combined worker starting: monitoring loop + orders loop in one process.")
+    logger.info("Combined worker starting: monitoring loop + orders loop + report job loop in one process.")
     try:
-        # Either loop raising is treated as fatal for the whole process
+        # Any loop raising is treated as fatal for the whole process
         # (not caught/suppressed here) — same "never silently keep only
-        # half working" principle both loops already follow internally
-        # for their own per-cycle failures.
+        # part working" principle each loop already follows internally
+        # for its own per-cycle/per-job failures (the report loop marks
+        # an individual job FAILED rather than raising for a one-off
+        # job problem -- see services/report_job_worker.py).
         await asyncio.gather(
             run_forever(ctx),
             run_orders_loop(args.orders_interval),
+            run_reports_loop(args.reports_interval),
         )
     finally:
         await ctx.lightweight.close()

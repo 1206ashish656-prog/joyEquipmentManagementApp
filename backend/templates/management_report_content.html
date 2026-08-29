@@ -1,9 +1,11 @@
-{# Shared report body, included by both management_report.html (the
-   on-screen admin page) and management_report_pdf.html (the standalone
-   document rendered to PDF via services/report_pdf.py) — one source of
-   truth so the PDF always matches what the admin previewed. Expects
-   `report` (services/management_report.py's ManagementReport) in
-   context. #}
+{# The report body -- included by management_report_pdf.html (the
+   standalone document rendered to PDF via services/report_pdf.py's
+   render_management_report_pdf(), called only from the background
+   worker, services/report_job_worker.py; there is no on-screen HTML
+   preview any more -- per explicit request, the only way to see this
+   report is to download the finished PDF from /reports/management).
+   Expects `report` (services/management_report.py's ManagementReport)
+   in context. #}
 <h1>Senior Management Report</h1>
 <table class="kv">
   <tr><td>Period</td><td>{{ report.start }} to {{ report.end }}</td></tr>

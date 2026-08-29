@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Management Report — Equipment Monitor{% endblock %}
+{% block head_extra %}{% if has_in_progress %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
+{% block content %}
+<h1>Senior Management Report</h1>
+<p class="callout">Aggregated + monthly sales/revenue/cost/profit, venue performance, and downtime by time of day — generated as a downloadable PDF. Generation runs in the background (a separate worker process); this page auto-refreshes while a report is in progress.</p>
+
+<section class="status-panel">
+  <h2>Generate a Report</h2>
+  <form method="post" action="/reports/management/jobs" class="order-filter-form" id="filter-form">
+    <div class="filter-group">
+      <label>Period
+        <select name="period" id="period-select">
+          {% for p in periods %}
+          <option value="{{ p }}">{{ "Custom range" if p == "custom" else p|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label id="as-of-field">As of
+        <input type="date" name="as_of" value="{{ today }}">
+      </label>
+      <label id="start-field" style="display:none;">Start
+        <input type="date" name="start" value="{{ today }}">
+      </label>
+      <label id="end-field" style="display:none;">End
+        <input type="date" name="end" value="{{ today }}">
+      </label>
+    </div>
+    <div class="filter-group">
+      <label>Machine
+        <select name="equipment_id">
+          <option value="">— All Machines —</option>
+          {% for e in equipment_list %}
+          <option value="{{ e.id }}">{{ e.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    <button type="submit">Generate Report</button>
+  </form>
+</section>
+
+<section>
+  <h2>Report History</h2>
+  <table class="equipment-table">
+    <thead><tr><th>Requested</th><th>By</th><th>Period</th><th>Range</th><th>Scope</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for job, requester in jobs %}
+      <tr>
+        <td>{{ job.created_at | ist }}</td>
+        <td>{{ requester.name if requester else "—" }}</td>
+        <td>{{ job.period|capitalize }}</td>
+        <td>{{ job.start }}{% if job.end != job.start %} to {{ job.end }}{% endif %}</td>
+        <td>{{ equipment_list|selectattr("id", "equalto", job.equipment_id)|map(attribute="name")|first or "All Machines" }}</td>
+        <td>
+          {% if job.status.value == "SUCCESS" %}<span class="badge badge-healthy">Ready</span>
+          {% elif job.status.value == "FAILED" %}<span class="badge badge-malfunction" title="{{ job.error_message }}">Failed</span>
+          {% else %}<span class="badge badge-warning">{{ job.status.value|capitalize }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if job.status.value == "SUCCESS" %}
+          <a href="/reports/management/jobs/{{ job.id }}/download">⬇ Download PDF</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7">No reports generated yet — use the form above to generate one.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<script>
+  (function () {
+    var periodSelect = document.getElementById("period-select");
+    var asOfField = document.getElementById("as-of-field");
+    var startField = document.getElementById("start-field");
+    var endField = document.getElementById("end-field");
+    function syncPeriod() {
+      var custom = periodSelect.value === "custom";
+      asOfField.style.display = custom ? "none" : "flex";
+      startField.style.display = custom ? "flex" : "none";
+      endField.style.display = custom ? "flex" : "none";
+    }
+    periodSelect.addEventListener("change", syncPeriod);
+    syncPeriod();
+  })();
+</script>
+{% endblock %}

@@ -36,9 +36,12 @@ Two deployed services, not three, even though there are three local
 - **`web`** — `uvicorn backend.main:app`, the only one with a public
   URL. `Dockerfile`'s default `CMD`.
 - **`combined-worker`** — `python -m monitoring.combined_worker --loop`,
-  runs the equipment-polling loop and the order-refresh loop together in
-  one process (see README for why this consolidation exists — it's a
-  real correctness fix, not just cost-saving). No public port. One
+  runs the equipment-polling loop, the order-refresh loop, and the
+  Senior Management Report job loop (services/report_job_worker.py)
+  together in one process (see README for why the first two are
+  consolidated — it's a real correctness fix, not just cost-saving; the
+  report loop just rides along in the same always-on process rather
+  than needing a fourth deployed service). No public port. One
   persistent volume at `/app/data`.
 - **Postgres** — Railway's managed plugin.
 

@@ -9,6 +9,27 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Report generation moved to a background job (an "isolated report
+generation process")** (2026-08-30), per explicit request. The
+Senior Management Report's on-screen dashboard is gone — `/reports/
+management` is now a control panel: pick a period/machine, click
+Generate, and a `ReportJob` row (PENDING → RUNNING → SUCCESS/FAILED)
+shows in a report history table, with a Download PDF link once ready.
+Report computation and PDF rendering now run ONLY in
+`services/report_job_worker.py`, a third loop in the existing
+background worker process (`monitoring/combined_worker.py`) that polls
+for pending jobs every 10 seconds — the web process never computes a
+report or launches a browser itself, and one job's failure can never
+crash a web request or take equipment monitoring/order sync down with
+it. Finished PDFs are stored as bytes directly in Postgres.
+
+**18% GST added to recurring rent** (2026-08-30), per explicit
+request. A Venue's configured monthly rent stays the pre-GST base
+figure; 18% GST is added on top at generation time, so the Cost
+Management preview and the actual generated entry always agree.
+Salaries are unaffected. The Venues page shows both the base and
+GST-inclusive figures for clarity.
+
 **Charts + venue revenue in the Senior Management Report** (2026-08-30),
 per explicit request. A "Sales Over Time" line chart and a "Sales by
 Venue" bar chart, rendered as plain inline SVG (`services/chart_svg.py`

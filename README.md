@@ -546,6 +546,18 @@ salary only affects **future** months; an already-generated entry is a
 real historical record, editable individually like any other entry via
 `/costs/{id}/edit`, never silently rewritten.
 
+**18% GST on rent (2026-08-30 addition, per explicit request)** —
+`Venue.monthly_rent` stays the pre-GST base figure an admin
+negotiates/edits; `services/recurring_costs.py`'s `RENT_GST_RATE`
+(18%) is added on top at candidate-computation time, so the Cost
+Management preview table and the actual generated `CostEntry.amount`
+always show the same GST-inclusive total (never two different numbers
+for the same candidate). Salaries are never subject to GST. The
+Venues page (`/venues`) shows both the base rent and the GST-inclusive
+total for admin clarity; the generated entry's `item_name` notes
+"(Rent incl. 18% GST)" so it's visible directly in the Raw Entries
+ledger without a schema change.
+
 Migration note for an **existing** deployment (same "no Alembic"
 situation as `venue_provider`/`is_super_admin`/`email` above): `Venue`
 is a brand-new table (free via `create_all()`), but `Staff.monthly_salary`
@@ -566,9 +578,31 @@ A fresh install gets all of this for free via `create_all()`.
 An aggregated + monthly breakdown of sales/revenue/cost/profit, venue
 performance ranked by sales volume, and per-machine downtime by time of
 day, downloadable as a PDF — `services/management_report.py` computes
-it (pure DB logic, no HTTP), `backend/api/reports.py` presents it (an
-on-screen preview and a PDF export, gated behind the existing
-`require_admin` dependency, no new role).
+it, `services/report_pdf.py`/`services/chart_svg.py` render it, gated
+behind the existing `require_admin` dependency (no new role).
+
+**Generation is a background job, not an on-screen dashboard (updated
+2026-08-30, per explicit request).** `/reports/management` is a control
+panel: pick a period + optional machine, click Generate, and a
+`ReportJob` row (`db/models.py`, `PENDING` → `RUNNING` →
+`SUCCESS`/`FAILED`) appears in the report history below, with the page
+auto-refreshing (the same `<meta http-equiv="refresh">` idiom
+`equipment_detail.html` already used) only while something is actually
+in flight. The web process (`backend/api/reports.py`) only ever
+creates that row and later reads a finished one back — it never
+computes a report or launches a browser itself. All of that —
+`services/management_report.py`'s computation and the real headless-
+Chromium PDF render (`services/report_pdf.py`) — runs in
+`services/report_job_worker.py`, a third loop in the existing
+background worker process (`monitoring/combined_worker.py`, alongside
+equipment polling and order sync) that polls for `PENDING` jobs every
+10 seconds. This is "an isolated report generation process" per
+explicit request: report generation can never block or crash a web
+request, and a single job's failure (recorded as `FAILED` with an
+error message) can never take equipment monitoring or order sync down
+with it. Finished PDFs are stored directly as bytes in Postgres
+(`ReportJob.pdf_data`) — this app has no other on-disk file-storage
+convention, and a report PDF is tens of KB, trivial at this scale.
 
 **Cost/profit is company-wide only.** `CostEntry` has no per-venue or
 per-machine link at all (Rent ties to a `Venue`, but every other
@@ -626,15 +660,16 @@ already downloaded and verified working in this environment — rather
 than adding a new PDF library (WeasyPrint needs GTK/Pango native
 libraries that are painful to install on Windows; reportlab/fpdf2 would
 mean hand-laying-out tables instead of reusing the existing HTML/CSS).
-A throwaway headless Chromium instance renders a self-contained HTML
+A throwaway headless Chromium instance (launched by the worker, per
+job, and closed immediately after) renders a self-contained HTML
 document (`management_report_pdf.html` — inlined CSS, since
 `page.set_content()` has no live server context for `/static` to
-resolve against) built from the exact same
-`management_report_content.html` partial the on-screen preview uses,
-so the two can never drift apart. This is completely independent of
+resolve against) built from `management_report_content.html`, the sole
+place the report's actual markup lives now that there's no on-screen
+preview to keep in sync with it. This is completely independent of
 `monitoring/browser_manager.py`'s persistent jwintell.com session
-browser — a fresh instance per download, closed immediately after,
-never touching the saved target-application session.
+browser — a fresh instance per job, never touching the saved
+target-application session.
 
 ## Fault Information detail in alerts (2026-08-29)
 
