@@ -8,6 +8,14 @@ cost/profit is company-wide only. Downloadable as a PDF
 (services/report_pdf.py, Playwright-rendered) in addition to the
 on-screen HTML preview — same underlying report, same template content
 partial, so the two never drift apart.
+
+Charts (services/chart_svg.py, plain inline SVG — see that module's
+docstring for why not Chart.js) render here, not in
+management_report.py: which granularity the "sales over time" chart
+uses is a presentation choice (explicit request — "if monthly or
+weekly selected, generate charts by date else generate monthly sales
+chart"), not something the UI-agnostic report data layer should know
+about.
 """
 from __future__ import annotations
 
@@ -23,10 +31,12 @@ from backend.deps import get_db, require_admin
 from backend.period_utils import PERIODS, period_range
 from backend.templating import templates
 from db.models import Equipment, User
-from services import report_pdf
+from services import chart_svg, report_pdf
 from services.management_report import build_report
 
 router = APIRouter()
+
+_DATE_GRANULARITY_PERIODS = {"weekly", "monthly"}
 
 
 def _resolve_equipment(db: Session, raw_equipment_id: str) -> Equipment | None:
@@ -52,6 +62,25 @@ def _build_context(request: Request, admin: User, db: Session) -> dict:
     report = build_report(db, start, end, equipment.id if equipment else None)
     equipment_list = db.execute(select(Equipment).order_by(Equipment.name)).scalars().all()
 
+    # Explicit requirement: weekly/monthly periods chart by exact date
+    # (short enough ranges that daily granularity stays readable);
+    # every other period (daily, ytd, custom) charts by month instead.
+    if period in _DATE_GRANULARITY_PERIODS:
+        time_series_labels = [d.date for d in report.daily]
+        time_series_values = [d.orders for d in report.daily]
+    else:
+        time_series_labels = [m.month for m in report.monthly]
+        time_series_values = [m.orders for m in report.monthly]
+
+    sales_over_time_chart = chart_svg.render_line_chart(
+        time_series_labels, time_series_values, title="Sales Over Time (Orders)",
+    )
+    sales_by_venue_chart = chart_svg.render_bar_chart(
+        [v.venue for v in report.venue_performance],
+        [v.orders for v in report.venue_performance],
+        title="Sales by Venue (Orders)",
+    )
+
     return {
         "user": admin,
         "period": period,
@@ -62,6 +91,8 @@ def _build_context(request: Request, admin: User, db: Session) -> dict:
         "equipment_list": equipment_list,
         "report": report,
         "generated_at": datetime.now(timezone.utc),
+        "sales_over_time_chart": sales_over_time_chart,
+        "sales_by_venue_chart": sales_by_venue_chart,
     }
 
 

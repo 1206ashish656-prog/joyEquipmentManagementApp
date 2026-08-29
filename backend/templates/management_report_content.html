@@ -24,6 +24,26 @@
 {% endif %}
 
 <section>
+  <h2>Sales Over Time</h2>
+  {% if sales_over_time_chart %}
+  {{ sales_over_time_chart | safe }}
+  {% else %}
+  <p class="callout">No data in this period.</p>
+  {% endif %}
+</section>
+
+{% if report.venue_performance %}
+<section>
+  <h2>Sales by Venue</h2>
+  {% if sales_by_venue_chart %}
+  {{ sales_by_venue_chart | safe }}
+  {% else %}
+  <p class="callout">No data in this period.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<section>
   <h2>Monthly Breakdown</h2>
   <table class="equipment-table">
     <thead>
@@ -55,12 +75,13 @@
   <h2>Venue Performance (ranked by sales volume)</h2>
   <p class="callout">"Outperforming"/"Underperforming" is relative to the average orders-per-venue across all venues in this period — not a fixed target.</p>
   <table class="equipment-table">
-    <thead><tr><th>Venue</th><th>Orders</th><th>Performance</th></tr></thead>
+    <thead><tr><th>Venue</th><th>Orders</th><th>Revenue</th><th>Performance</th></tr></thead>
     <tbody>
       {% for v in report.venue_performance %}
       <tr>
         <td>{{ v.venue }}</td>
         <td>{{ v.orders }}</td>
+        <td>₹{{ "%.2f"|format(v.revenue) }}</td>
         <td>
           {% if v.performance == "Outperforming" %}<span class="badge badge-healthy">Outperforming</span>
           {% elif v.performance == "Underperforming" %}<span class="badge badge-malfunction">Underperforming</span>

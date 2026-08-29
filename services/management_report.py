@@ -12,10 +12,18 @@ Glass/Straws/etc. aren't tied to anything), so there is no honest way
 to attribute cost (and therefore profit) to one machine or one venue
 without fabricating an allocation. Venue performance is ranked by SALES
 VOLUME ONLY (explicit requirement: "based on sales number") — never
-profit — which sidesteps that gap entirely. When the report is scoped
-to a single machine (equipment_id given), cost/profit is reported as
-"not available" rather than silently showing a wrong (company-wide)
-number next to that one machine's sales.
+profit — which sidesteps that gap entirely; revenue is shown alongside
+orders per venue (a separate explicit requirement) but never drives the
+Outperforming/Underperforming call. When the report is scoped to a
+single machine (equipment_id given), cost/profit is reported as "not
+available" rather than silently showing a wrong (company-wide) number
+next to that one machine's sales.
+
+Both a monthly (`monthly`) and a daily (`daily`) orders/revenue
+breakdown are always computed — backend/api/reports.py picks which one
+feeds the "sales over time" chart based on the selected period (daily
+granularity for weekly/monthly, monthly granularity otherwise), per
+explicit request. This module stays UI-agnostic about that choice.
 """
 from __future__ import annotations
 
@@ -53,9 +61,17 @@ class MonthlyRow:
 
 
 @dataclass
+class DailyRow:
+    date: str  # 'YYYY-MM-DD'
+    orders: int
+    revenue: Decimal
+
+
+@dataclass
 class VenuePerformance:
     venue: str
     orders: int
+    revenue: Decimal
     performance: str  # "Outperforming" | "Underperforming" | "Average"
 
 
@@ -76,6 +92,7 @@ class ManagementReport:
     total_revenue: Decimal
     total_cost: Decimal | None
     monthly: list[MonthlyRow]
+    daily: list[DailyRow]
     venue_performance: list[VenuePerformance]  # empty when scoped to one machine
     downtime: list[MachineDowntime]
 
@@ -118,6 +135,22 @@ def _months_between(start: str, end: str) -> list[str]:
         else:
             cur = cur.replace(month=cur.month + 1)
     return months
+
+
+def _dates_between(start: str, end: str) -> list[str]:
+    """Every 'YYYY-MM-DD' the [start, end] range touches, in order --
+    same zero-filling rationale as _months_between, at day granularity
+    for the "sales over time" chart when a short (weekly/monthly)
+    period is selected (backend/api/reports.py decides which
+    granularity to chart; this always computes both)."""
+    s = datetime.strptime(start, "%Y-%m-%d").date()
+    e = datetime.strptime(end, "%Y-%m-%d").date()
+    dates = []
+    cur = s
+    while cur <= e:
+        dates.append(cur.isoformat())
+        cur += timedelta(days=1)
+    return dates
 
 
 def _time_of_day_seconds(seg_start: datetime, seg_end: datetime) -> dict[str, float]:
@@ -229,8 +262,10 @@ def build_report(db: Session, start: str, end: str, equipment_id: int | None) ->
             cost_by_month[key] = cost_by_month.get(key, Decimal("0.00")) + c.amount
 
     orders_by_month: dict[str, list[OrderSummary]] = {}
+    orders_by_date: dict[str, list[OrderSummary]] = {}
     for row in order_rows:
         orders_by_month.setdefault(_month_key(row.date), []).append(row)
+        orders_by_date.setdefault(row.date, []).append(row)
 
     monthly: list[MonthlyRow] = []
     for month in _months_between(start, end):
@@ -243,15 +278,29 @@ def build_report(db: Session, start: str, end: str, equipment_id: int | None) ->
             cost=cost_by_month.get(month, Decimal("0.00")) if cost_profit_available else None,
         ))
 
+    daily: list[DailyRow] = []
+    for day in _dates_between(start, end):
+        day_orders = orders_by_date.get(day, [])
+        day_rollup = order_rollup(day_orders, group_by=())
+        daily.append(DailyRow(
+            date=day,
+            orders=day_rollup[0].number_of_orders if day_rollup else 0,
+            revenue=day_rollup[0].revenue if day_rollup else Decimal("0.00"),
+        ))
+
     # Venue performance: sales-volume ranking only -- meaningless (and
     # not computed) when the report is already scoped to one machine.
+    # Revenue is shown alongside orders (explicit requirement) but never
+    # drives the Outperforming/Underperforming call itself.
     venue_performance: list[VenuePerformance] = []
     if scoped_equipment is None:
         lookup = _venue_lookup(db)
         orders_per_venue: dict[str, int] = {}
+        revenue_per_venue: dict[str, Decimal] = {}
         for row in order_rollup(order_rows, group_by=("device_app",)):
             venue = lookup.get(row.key["device_app"].lower(), "Unmapped")
             orders_per_venue[venue] = orders_per_venue.get(venue, 0) + row.number_of_orders
+            revenue_per_venue[venue] = revenue_per_venue.get(venue, Decimal("0.00")) + row.revenue
 
         if orders_per_venue:
             average = sum(orders_per_venue.values()) / len(orders_per_venue)
@@ -262,7 +311,9 @@ def build_report(db: Session, start: str, end: str, equipment_id: int | None) ->
                     performance = "Underperforming"
                 else:
                     performance = "Average"
-                venue_performance.append(VenuePerformance(venue=venue, orders=orders, performance=performance))
+                venue_performance.append(VenuePerformance(
+                    venue=venue, orders=orders, revenue=revenue_per_venue[venue], performance=performance,
+                ))
 
     equipment_ids = [scoped_equipment.id] if scoped_equipment is not None else None
     downtime = _compute_downtime(db, start, end, equipment_ids)
@@ -276,6 +327,7 @@ def build_report(db: Session, start: str, end: str, equipment_id: int | None) ->
         total_revenue=total_revenue,
         total_cost=total_cost,
         monthly=monthly,
+        daily=daily,
         venue_performance=venue_performance,
         downtime=downtime,
     )

@@ -21,7 +21,7 @@ import db.base as db_base
 import services.report_pdf as report_pdf
 from backend.main import app
 from backend.security import hash_password
-from db.models import Base, Equipment, OrderSummary, User
+from db.models import Base, Equipment, OrderSummary, User, VenueMapping
 
 
 @pytest.fixture()
@@ -162,3 +162,80 @@ def test_invalid_equipment_id_falls_back_to_all_machines(client):
     resp = test_client.get("/reports/management?equipment_id=not-a-number")
     assert resp.status_code == 200
     assert "All Machines" in resp.text
+
+
+# --- Charts + venue revenue column ---
+
+def _add_venue_mapping(SessionLocal, machine_name, venue_provider):
+    with SessionLocal() as session:
+        session.add(VenueMapping(machine_name=machine_name, venue_provider=venue_provider))
+        session.commit()
+
+
+def test_report_page_includes_svg_charts(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_equipment(SessionLocal, "NEXUS", "205")
+    _add_venue_mapping(SessionLocal, "NEXUS", "Venue A")
+    _add_order(SessionLocal, "2026-08-10", "NEXUS", n=10)
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/reports/management?period=monthly&as_of=2026-08-15")
+    assert resp.status_code == 200
+    assert "Sales Over Time (Orders)" in resp.text
+    assert "Sales by Venue (Orders)" in resp.text
+    assert resp.text.count("<svg") == 2
+
+
+def test_weekly_period_charts_by_exact_date(client):
+    """Explicit requirement: monthly/weekly periods chart by date."""
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_equipment(SessionLocal, "NEXUS", "205")
+    _add_order(SessionLocal, "2026-08-12", "NEXUS", n=10)
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/reports/management?period=weekly&as_of=2026-08-12")
+    assert resp.status_code == 200
+    assert "2026-08-12" in resp.text  # an exact date label from the daily breakdown
+
+
+def test_ytd_period_charts_by_month(client):
+    """Explicit requirement: every other period (not weekly/monthly)
+    charts by month instead of by exact date."""
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_equipment(SessionLocal, "NEXUS", "205")
+    _add_order(SessionLocal, "2026-08-12", "NEXUS", n=10)
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/reports/management?period=ytd&as_of=2026-08-15")
+    assert resp.status_code == 200
+    # The exact day must not appear as an x-axis tick -- only the month.
+    assert "2026-08-12" not in resp.text
+    assert "2026-08<" in resp.text
+
+
+def test_venue_performance_table_shows_revenue(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_equipment(SessionLocal, "NEXUS", "205")
+    _add_venue_mapping(SessionLocal, "NEXUS", "Venue A")
+    _add_order(SessionLocal, "2026-08-10", "NEXUS", n=10)
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/reports/management?period=monthly&as_of=2026-08-15")
+    assert resp.status_code == 200
+    assert "Venue A" in resp.text
+    assert "1200.00" in resp.text  # 10 orders * 120.00
+
+
+def test_no_orders_shows_no_data_message_instead_of_broken_chart(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/reports/management?period=monthly&as_of=2026-08-15")
+    assert resp.status_code == 200
+    assert resp.text.count("<svg") == 0
+    assert "No data in this period." in resp.text

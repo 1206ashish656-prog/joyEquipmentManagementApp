@@ -134,6 +134,21 @@ def test_build_report_monthly_breakdown_includes_zero_months(db_session):
     assert months == {"2026-08": 10, "2026-09": 0}
 
 
+def test_build_report_daily_breakdown_includes_zero_days(db_session):
+    """The daily granularity used for the "sales over time" chart when
+    a weekly/monthly period is selected (backend/api/reports.py) --
+    every date in range gets a row, even a zero one."""
+    _add_equipment(db_session, "NEXUS", "205")
+    _add_order_summary(db_session, "2026-08-10", "NEXUS", n=10)
+    db_session.flush()
+
+    report = build_report(db_session, "2026-08-09", "2026-08-11", equipment_id=None)
+
+    days = {d.date: d.orders for d in report.daily}
+    assert days == {"2026-08-09": 0, "2026-08-10": 10, "2026-08-11": 0}
+    assert next(d.revenue for d in report.daily if d.date == "2026-08-10") == Decimal("1200.00")
+
+
 def test_build_report_scoped_to_one_machine_excludes_cost_and_venues(db_session):
     eq = _add_equipment(db_session, "NEXUS", "205")
     _add_equipment(db_session, "Gravity", "116")
@@ -163,6 +178,10 @@ def test_build_report_venue_performance_ranks_by_sales(db_session):
     db_session.flush()
 
     report = build_report(db_session, "2026-08-01", "2026-08-31", equipment_id=None)
+
+    by_revenue = {v.venue: v.revenue for v in report.venue_performance}
+    assert by_revenue["Venue A"] == Decimal("12000.00")  # 100 * 120
+    assert by_revenue["Venue B"] == Decimal("1200.00")  # 10 * 120
 
     by_venue = {v.venue: v.performance for v in report.venue_performance}
     assert by_venue["Venue A"] == "Outperforming"

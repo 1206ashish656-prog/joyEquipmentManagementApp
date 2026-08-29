@@ -585,6 +585,31 @@ attaching a company-wide number to one machine.
 **"Outperforming"/"Underperforming"** venues are relative to the
 average orders-per-venue across all venues in the selected period, not
 a fixed target — documented directly in the report for transparency.
+The venue table also shows each venue's **revenue** alongside its order
+count (2026-08-30 addition, per explicit request) — shown for
+reference only, never driving the Outperforming/Underperforming call
+itself, which stays sales-volume-only.
+
+**Charts (2026-08-30)**: a "Sales Over Time" line chart and a "Sales by
+Venue" bar chart, both plain server-rendered inline SVG
+(`services/chart_svg.py`) rather than Chart.js/canvas — the same markup
+has to work unmodified inside the static PDF export, where nothing
+guarantees a client-side chart library finishes drawing to a `<canvas>`
+before Playwright's snapshot, and no CDN access should be required to
+produce a report at all. Per explicit request, the "Sales Over Time"
+chart's granularity follows the selected period: **weekly or monthly**
+periods chart by **exact date** (`ManagementReport.daily`, always
+computed alongside the monthly breakdown); every other period (daily,
+YTD, custom) charts by **month** instead — `backend/api/reports.py`
+picks which one feeds the chart; `services/management_report.py` stays
+unaware of that presentation choice. Single-hue, single-series charts
+(no legend needed) following the project's data-viz method: `<=24px`
+columns with a 4px rounded cap, a 2px round-cap line, hairline
+gridlines, y-axis ticks rounded to clean numbers, and direct value
+labels (line: the endpoint; bars: every cap, since there are only ever
+a handful of venues) rather than a number on every point. X-axis labels
+thin themselves out (show every Nth one) rather than overlap when a
+month's worth of daily points would otherwise collide.
 
 **Downtime by time of day**: each `FaultIncident`'s duration (clipped
 to the selected period, same clipping idiom as `staff/leave_summary.py`'s

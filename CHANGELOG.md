@@ -9,6 +9,15 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Charts + venue revenue in the Senior Management Report** (2026-08-30),
+per explicit request. A "Sales Over Time" line chart and a "Sales by
+Venue" bar chart, rendered as plain inline SVG (`services/chart_svg.py`
+— no Chart.js, so the same markup renders identically in the PDF
+export with no client-side-JS-timing risk). The venue performance table
+now shows revenue alongside orders (reference only — ranking stays
+sales-volume-only). Per explicit rule: weekly/monthly periods chart the
+time series by exact date; every other period charts by month.
+
 **Senior Management Report, downloadable as a PDF** (2026-08-30,
 admin-only, `/reports/management`), per explicit request. Aggregated +
 monthly sales/revenue/cost/profit, venues ranked "Outperforming" /
