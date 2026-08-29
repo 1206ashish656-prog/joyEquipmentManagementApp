@@ -27,10 +27,34 @@
   </tbody>
 </table>
 
-<h2>Add Recipient</h2>
-<form method="post" action="/alert-recipients" class="stacked-form" style="margin: 0;">
-  <label>Email<input type="email" name="email" required></label>
-  <label>Name <span style="font-weight:400;color:var(--muted);">(optional, for your own reference)</span><input type="text" name="name"></label>
-  <button type="submit">Add Recipient</button>
-</form>
+<div class="detail-grid">
+  <section>
+    <h2>Add Recipient</h2>
+    <form method="post" action="/alert-recipients" class="stacked-form" style="margin: 0;">
+      <label>Email<input type="email" name="email" required></label>
+      <label>Name <span style="font-weight:400;color:var(--muted);">(optional, for your own reference)</span><input type="text" name="name"></label>
+      <button type="submit">Add Recipient</button>
+    </form>
+  </section>
+
+  <section>
+    <h2>Quick Add from Staff</h2>
+    {% if staff_with_email %}
+    <form method="post" action="/alert-recipients" class="stacked-form" style="margin: 0;">
+      <label>Staff
+        <select name="email" required onchange="document.getElementById('staff-recipient-name').value = this.options[this.selectedIndex].dataset.name || '';">
+          <option value="" disabled selected>Select a staff member…</option>
+          {% for s in staff_with_email %}
+          <option value="{{ s.email }}" data-name="{{ s.name }}">{{ s.name }} ({{ s.email }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <input type="hidden" name="name" id="staff-recipient-name">
+      <button type="submit">Add as Recipient</button>
+    </form>
+    {% else %}
+    <p class="callout">No active staff have an email on file yet — add one from <a href="/staff">Staff & Leave Management</a> to quick-add them here.</p>
+    {% endif %}
+  </section>
+</div>
 {% endblock %}

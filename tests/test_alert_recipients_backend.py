@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 import db.base as db_base
 from backend.main import app
 from backend.security import hash_password
-from db.models import AlertRecipient, Base, User
+from db.models import AlertRecipient, Base, Staff, User
 
 
 @pytest.fixture()
@@ -45,6 +45,15 @@ def _add_recipient(SessionLocal, email, active=True) -> int:
         session.commit()
         session.refresh(r)
         return r.id
+
+
+def _add_staff(SessionLocal, name, email=None, employment_end_date=None) -> int:
+    with SessionLocal() as session:
+        s = Staff(name=name, email=email, employment_start_date="2026-01-01", employment_end_date=employment_end_date)
+        session.add(s)
+        session.commit()
+        session.refresh(s)
+        return s.id
 
 
 def test_requires_login(client):
@@ -92,6 +101,62 @@ def test_create_recipient(client):
         r = session.execute(select(AlertRecipient)).scalar_one()
         assert r.email == "ops-external@example.com"  # normalized to lowercase
         assert r.name == "External Ops"
+        assert r.active is True
+
+
+# --- Quick Add from Staff dropdown (backend/api/alert_recipients.py's
+# _staff_with_email) ---
+
+def test_active_staff_with_email_appear_in_quick_add_dropdown(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_staff(SessionLocal, "Priya", email="priya@example.com")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/alert-recipients")
+    assert resp.status_code == 200
+    assert "priya@example.com" in resp.text
+    assert "Priya" in resp.text
+
+
+def test_staff_without_email_excluded_from_dropdown(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_staff(SessionLocal, "NoEmail")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/alert-recipients")
+    assert resp.status_code == 200
+    assert "No active staff have an email on file" in resp.text
+
+
+def test_offboarded_staff_excluded_from_dropdown(client):
+    """Confirms staff.py's auto-deactivation and this dropdown's exclusion
+    are consistent: a left staff member is never re-offered here."""
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_staff(SessionLocal, "Left Staff", email="left@example.com", employment_end_date="2026-08-01")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/alert-recipients")
+    assert resp.status_code == 200
+    assert "left@example.com" not in resp.text
+
+
+def test_quick_add_from_staff_dropdown_creates_recipient(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_staff(SessionLocal, "Priya", email="priya@example.com")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.post(
+        "/alert-recipients", data={"email": "priya@example.com", "name": "Priya"}, follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    with SessionLocal() as session:
+        r = session.execute(select(AlertRecipient)).scalar_one()
+        assert r.email == "priya@example.com"
+        assert r.name == "Priya"
         assert r.active is True
 
 

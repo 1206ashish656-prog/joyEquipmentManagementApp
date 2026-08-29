@@ -447,6 +447,18 @@ is_super_admin BOOLEAN NOT NULL DEFAULT FALSE`, then re-run
 to mark that account as the (one, explicitly chosen) super admin. A
 fresh install gets the column for free via `create_all()`.
 
+**Staff email (2026-08-29)**: `Staff.email` (optional) lets a staff
+member be quick-added to the flat Alert Recipients list
+(`/alert-recipients`) without retyping their email, and lets
+offboarding (`/staff/{id}/offboard` or clearing/setting the end date via
+`/staff/{id}/edit`) auto-deactivate that recipient row
+(`backend/api/staff.py`'s `_deactivate_alert_recipient_for`) — a left
+staff member stops getting equipment alerts through their staff email
+without an admin having to remember to remove them separately. Same
+"no Alembic" situation: an **existing** deployment needs `ALTER TABLE
+staff ADD COLUMN email VARCHAR(255)`. A fresh install gets the column
+for free via `create_all()`.
+
 **Update 2026-08-29**: the designated super admin is now
 `support@refresha.in` (`db/seed_admin.py`'s `SUPER_ADMIN_EMAIL`) —
 reassigned from the original seed account, `1206ashish656@gmail.com`,

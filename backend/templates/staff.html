@@ -43,11 +43,12 @@
 <section>
   <h2>Staff Roster</h2>
   <table class="equipment-table">
-    <thead><tr><th>Name</th><th>Department</th><th>Sub-department</th><th>Employment Start</th><th>Employment End</th><th>Total Advances</th><th></th><th></th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Email</th><th>Department</th><th>Sub-department</th><th>Employment Start</th><th>Employment End</th><th>Total Advances</th><th></th><th></th><th></th></tr></thead>
     <tbody>
       {% for s in staff_list %}
       <tr>
         <td>{{ s.name }}</td>
+        <td>{{ s.email or "—" }}</td>
         <td>{{ s.department or "—" }}</td>
         <td>{{ s.sub_department or "—" }}</td>
         <td>{{ s.employment_start_date }}</td>
@@ -69,7 +70,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="9">No staff added yet.</td></tr>
+      <tr><td colspan="10">No staff added yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -80,6 +81,9 @@
     <h2>Add Staff</h2>
     <form method="post" action="/staff" class="stacked-form">
       <label>Name<input type="text" name="name" required></label>
+      <label>Email <span style="font-weight:400;color:var(--muted);">(optional — lets you quick-add them to Alert Recipients)</span>
+        <input type="email" name="email">
+      </label>
       <label>Department <span style="font-weight:400;color:var(--muted);">(e.g. Operations)</span>
         <input type="text" name="department" list="department-options">
       </label>

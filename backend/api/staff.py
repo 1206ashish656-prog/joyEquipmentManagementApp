@@ -17,10 +17,28 @@ from sqlalchemy.orm import Session
 
 from backend.deps import get_db, require_admin
 from backend.templating import templates
-from db.models import Staff, StaffAdvance, StaffLeave, User
+from db.models import AlertRecipient, Staff, StaffAdvance, StaffLeave, User
 from staff.leave_summary import summarize_month
 
 router = APIRouter()
+
+
+def _deactivate_alert_recipient_for(db: Session, email: str | None) -> None:
+    """A staff member with a set employment_end_date has left -- per
+    explicit request, stop any equipment alerts they were receiving via
+    their staff email being added as a flat AlertRecipient
+    (backend/api/alert_recipients.py). Soft-deactivate (matches
+    AlertRecipient's own activate/deactivate lifecycle) rather than
+    delete, so the row/history isn't lost and an admin can see it was
+    auto-turned-off rather than never having existed. A no-op if no email
+    was set, or no matching (or already-inactive) recipient exists."""
+    if not email:
+        return
+    recipient = db.execute(
+        select(AlertRecipient).where(func.lower(AlertRecipient.email) == email.lower())
+    ).scalar_one_or_none()
+    if recipient is not None and recipient.active:
+        recipient.active = False
 
 
 @router.get("/staff", response_class=HTMLResponse)
@@ -88,20 +106,29 @@ def create_staff(
     name: str = Form(...),
     department: str = Form(""),
     sub_department: str = Form(""),
+    email: str = Form(""),
     employment_start_date: str = Form(...),
     employment_end_date: str = Form(""),
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    resolved_email = email.strip().lower() or None
+    resolved_end_date = employment_end_date.strip() or None
     db.add(
         Staff(
             name=name.strip(),
             department=department.strip() or None,
             sub_department=sub_department.strip() or None,
+            email=resolved_email,
             employment_start_date=employment_start_date,
-            employment_end_date=employment_end_date.strip() or None,
+            employment_end_date=resolved_end_date,
         )
     )
+    # Covers the rare case of adding a historical/backdated record for
+    # someone who has already left -- their email (if any) shouldn't be
+    # left as an active alert recipient either.
+    if resolved_end_date:
+        _deactivate_alert_recipient_for(db, resolved_email)
     return RedirectResponse(url="/staff", status_code=303)
 
 
@@ -115,6 +142,10 @@ def offboard_staff(
     target = db.get(Staff, staff_id)
     if target is not None:
         target.employment_end_date = end_date
+        # Per explicit request: a staff member who has left stops
+        # receiving equipment alerts if their email was ever added to
+        # the flat Alert Recipients list.
+        _deactivate_alert_recipient_for(db, target.email)
     return RedirectResponse(url="/staff", status_code=303)
 
 
@@ -148,6 +179,7 @@ def update_staff(
     name: str = Form(...),
     department: str = Form(""),
     sub_department: str = Form(""),
+    email: str = Form(""),
     employment_start_date: str = Form(...),
     employment_end_date: str = Form(""),
     admin: User = Depends(require_admin),
@@ -160,12 +192,22 @@ def update_staff(
     staff.name = name.strip()
     staff.department = department.strip() or None
     staff.sub_department = sub_department.strip() or None
+    staff.email = email.strip().lower() or None
     staff.employment_start_date = employment_start_date
     # Blank end date on edit is exactly how a mistaken "mark as left" gets
     # undone -- clearing it here makes the staff member active again, and
     # the roster's existing "not s.employment_end_date" check is what
-    # brings the "Mark as left" action back into view for them.
+    # brings the "Mark as left" action back into view for them. Note this
+    # does NOT automatically re-activate a previously-auto-deactivated
+    # alert recipient below -- that's a deliberate admin decision, not
+    # something undoing an end-date should silently do on its own.
     staff.employment_end_date = employment_end_date.strip() or None
+    # Per explicit request: a staff member who has left (via this edit
+    # form, not just the dedicated "Mark as left" action) stops receiving
+    # equipment alerts if their email was ever added to the flat Alert
+    # Recipients list.
+    if staff.employment_end_date:
+        _deactivate_alert_recipient_for(db, staff.email)
     return RedirectResponse(url="/staff", status_code=303)
 
 

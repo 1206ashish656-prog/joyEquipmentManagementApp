@@ -6,6 +6,9 @@
 <section class="status-panel">
   <form method="post" action="/staff/{{ staff.id }}/edit" class="stacked-form" style="margin: 0;">
     <label>Name<input type="text" name="name" value="{{ staff.name }}" required></label>
+    <label>Email <span style="font-weight:400;color:var(--muted);">(optional)</span>
+      <input type="email" name="email" value="{{ staff.email or '' }}">
+    </label>
     <label>Department
       <input type="text" name="department" value="{{ staff.department or '' }}" list="department-options">
     </label>

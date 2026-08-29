@@ -14,7 +14,7 @@ from sqlalchemy.pool import StaticPool
 import db.base as db_base
 from backend.main import app
 from backend.security import hash_password
-from db.models import Base, Staff, StaffAdvance, StaffLeave, User
+from db.models import AlertRecipient, Base, Staff, StaffAdvance, StaffLeave, User
 
 
 @pytest.fixture()
@@ -94,6 +94,112 @@ def test_create_staff(client):
         staff = session.execute(select(Staff)).scalar_one()
         assert staff.name == "Priya"
         assert staff.employment_end_date is None
+
+
+# --- Optional email field + auto-deactivating its Alert Recipient row
+# on offboarding (backend/api/staff.py's _deactivate_alert_recipient_for) ---
+
+def test_create_staff_with_email(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _login(test_client, "admin@example.com")
+
+    test_client.post(
+        "/staff", data={"name": "Priya", "email": "Priya@Example.com", "employment_start_date": "2026-06-01"},
+    )
+    with SessionLocal() as session:
+        staff = session.execute(select(Staff).where(Staff.name == "Priya")).scalar_one()
+        assert staff.email == "priya@example.com"  # normalized to lowercase
+
+
+def test_create_staff_without_email_leaves_it_null(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _login(test_client, "admin@example.com")
+
+    test_client.post("/staff", data={"name": "Priya", "employment_start_date": "2026-06-01"})
+    with SessionLocal() as session:
+        staff = session.execute(select(Staff).where(Staff.name == "Priya")).scalar_one()
+        assert staff.email is None
+
+
+def test_offboarding_deactivates_matching_alert_recipient(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    with SessionLocal() as session:
+        session.get(Staff, staff_id).email = "priya@example.com"
+        session.add(AlertRecipient(email="priya@example.com", active=True))
+        session.commit()
+    _login(test_client, "admin@example.com")
+
+    test_client.post(f"/staff/{staff_id}/offboard", data={"end_date": "2026-08-24"}, follow_redirects=False)
+
+    with SessionLocal() as session:
+        recipient = session.execute(select(AlertRecipient).where(AlertRecipient.email == "priya@example.com")).scalar_one()
+        assert recipient.active is False
+
+
+def test_offboarding_staff_without_email_does_not_crash(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya")  # no email set
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.post(f"/staff/{staff_id}/offboard", data={"end_date": "2026-08-24"}, follow_redirects=False)
+    assert resp.status_code == 303
+
+
+def test_setting_end_date_via_edit_also_deactivates_alert_recipient(client):
+    """The auto-removal must fire from the general edit form too, not
+    just the dedicated "Mark as left" action."""
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    with SessionLocal() as session:
+        session.get(Staff, staff_id).email = "priya@example.com"
+        session.add(AlertRecipient(email="priya@example.com", active=True))
+        session.commit()
+    _login(test_client, "admin@example.com")
+
+    test_client.post(
+        f"/staff/{staff_id}/edit",
+        data={
+            "name": "Priya", "email": "priya@example.com",
+            "employment_start_date": "2026-01-01", "employment_end_date": "2026-08-24",
+        },
+        follow_redirects=False,
+    )
+
+    with SessionLocal() as session:
+        recipient = session.execute(select(AlertRecipient).where(AlertRecipient.email == "priya@example.com")).scalar_one()
+        assert recipient.active is False
+
+
+def test_reactivating_staff_via_edit_does_not_auto_restore_alert_recipient(client):
+    """Deliberate: undoing a mistaken "mark as left" should not silently
+    re-enable an alert an admin may have turned off for other reasons."""
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya", end="2026-08-24")
+    with SessionLocal() as session:
+        session.get(Staff, staff_id).email = "priya@example.com"
+        session.add(AlertRecipient(email="priya@example.com", active=False))
+        session.commit()
+    _login(test_client, "admin@example.com")
+
+    test_client.post(
+        f"/staff/{staff_id}/edit",
+        data={
+            "name": "Priya", "email": "priya@example.com",
+            "employment_start_date": "2026-01-01", "employment_end_date": "",
+        },
+        follow_redirects=False,
+    )
+
+    with SessionLocal() as session:
+        recipient = session.execute(select(AlertRecipient).where(AlertRecipient.email == "priya@example.com")).scalar_one()
+        assert recipient.active is False  # still off -- not silently restored
 
 
 def test_offboard_staff_sets_end_date(client):

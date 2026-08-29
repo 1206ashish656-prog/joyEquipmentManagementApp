@@ -9,6 +9,21 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Staff email + Alert Recipients quick-add + auto-removal on leaving**
+(2026-08-29), per explicit request — `Staff.email` (optional, new
+column) lets a staff member be added at `/staff` or `/staff/{id}/edit`
+without requiring one. `/alert-recipients` gained a "Quick Add from
+Staff" dropdown listing active staff with an email on file, so an admin
+can add them as a Critical-alert recipient without retyping the email.
+Offboarding a staff member (either the dedicated "Mark as left" action
+or setting an end date via the edit form) now auto-deactivates any
+`AlertRecipient` row matching their email — a left staff member stops
+getting equipment alerts through their staff email automatically,
+without an admin having to remember to remove them separately.
+Deliberately one-directional: reactivating a staff member does not
+auto-restore a previously-deactivated recipient. See README's "Staff
+email" section for the manual migration note.
+
 **Super admin reassigned to support@refresha.in** (2026-08-29), per
 explicit request — the original seed account, `1206ashish656@gmail.com`,
 was deactivated in the same change. `db/seed_admin.py`'s

@@ -15,16 +15,31 @@ from sqlalchemy.orm import Session
 
 from backend.deps import get_db, require_admin
 from backend.templating import templates
-from db.models import AlertRecipient, User
+from db.models import AlertRecipient, Staff, User
 
 router = APIRouter()
+
+
+def _staff_with_email(db: Session) -> list[Staff]:
+    """Active (not-yet-offboarded) staff with an email on file -- the
+    quick-add dropdown's source list. Left staff are excluded here on
+    purpose: they're the exact group staff.py's offboarding flow just
+    auto-removed from this same list, so re-offering them for a manual
+    re-add would immediately undo that."""
+    return db.execute(
+        select(Staff)
+        .where(Staff.email.is_not(None), Staff.employment_end_date.is_(None))
+        .order_by(Staff.name)
+    ).scalars().all()
 
 
 @router.get("/alert-recipients", response_class=HTMLResponse)
 def list_alert_recipients(request: Request, admin: User = Depends(require_admin), db: Session = Depends(get_db)):
     recipients = db.execute(select(AlertRecipient).order_by(AlertRecipient.email)).scalars().all()
     return templates.TemplateResponse(
-        request, "alert_recipients.html", {"user": admin, "recipients": recipients, "error": None}
+        request,
+        "alert_recipients.html",
+        {"user": admin, "recipients": recipients, "staff_with_email": _staff_with_email(db), "error": None},
     )
 
 
@@ -41,7 +56,9 @@ def create_alert_recipient(
     def _rerender(error: str):
         recipients = db.execute(select(AlertRecipient).order_by(AlertRecipient.email)).scalars().all()
         return templates.TemplateResponse(
-            request, "alert_recipients.html", {"user": admin, "recipients": recipients, "error": error},
+            request,
+            "alert_recipients.html",
+            {"user": admin, "recipients": recipients, "staff_with_email": _staff_with_email(db), "error": error},
             status_code=400,
         )
 

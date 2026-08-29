@@ -433,6 +433,12 @@ class Staff(Base):
     # for staff added before this field existed.
     department: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     sub_department: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    # Optional (requirement: "ask admin to add email information for new
+    # staff (optional)") -- lets a staff member be quick-added to the
+    # Alert Recipients list (backend/api/alert_recipients.py) without
+    # retyping their email, and lets offboarding auto-deactivate that
+    # recipient row (see staff.py's _deactivate_alert_recipient).
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     employment_start_date: Mapped[str] = mapped_column(String(10))  # 'YYYY-MM-DD'
     # NULL = still employed. Set on offboarding, never deleted, so past
     # leave records stay attributable to a real employment period.
