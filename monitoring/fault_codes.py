@@ -74,8 +74,15 @@ def describe_fault_code(code: str) -> str:
     confirmed in FAULT_CODE_DESCRIPTIONS. Never raises -- an unrecognized
     code (this table was captured from the target's lang pack, not
     guaranteed exhaustive) falls back to a readable guess built from the
-    raw slug and is logged once so the table can be extended."""
-    description = FAULT_CODE_DESCRIPTIONS.get(code)
+    raw slug and is logged once so the table can be extended.
+
+    Case-insensitive lookup: confirmed live via monitoring.fault_log_backfill
+    that the target sends this same slug with inconsistent casing across
+    devices/history (e.g. "uxingguangan" on one device's recent log,
+    "Uxingguangan" on another's/older rows) -- without normalizing, the
+    second form would silently miss the table despite being the exact
+    same component."""
+    description = FAULT_CODE_DESCRIPTIONS.get(code.lower())
     if description is None:
         logger.warning("Unrecognized fault code %r -- add it to monitoring.fault_codes once identified", code)
         description = code.replace("_", " ").strip() or "Unknown component"

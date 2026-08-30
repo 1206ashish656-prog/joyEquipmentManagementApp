@@ -184,6 +184,41 @@ class FaultLogEntry(Base):
     incident: Mapped["FaultIncident"] = relationship(back_populates="fault_log_entries")
 
 
+class FaultLogHistory(Base):
+    """The COMPLETE historical per-component fault log for one piece of
+    equipment, backfilled from the target application's own Equipment
+    Management > Fault Information tab (monitoring/fault_log_backfill.py,
+    monitoring/lightweight_client.py's get_fault_log_history) -- not tied
+    to any FaultIncident, unlike FaultLogEntry above.
+
+    This is the SOLE source for the Senior Management Report's "Downtime
+    per Machine" section (services/management_report.py) -- chosen over
+    FaultIncident specifically because the target's own log has real
+    historical depth (matching orders/backfill.py's own backfilled order
+    history), while FaultIncident only ever has data from whenever this
+    app's own polling started running. Re-running the backfill is always
+    safe: the unique constraint below makes it idempotent.
+    """
+    __tablename__ = "fault_log_history"
+    __table_args__ = (
+        UniqueConstraint("equipment_id", "target_log_id", name="uq_fault_log_history_target_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    equipment_id: Mapped[int] = mapped_column(ForeignKey("equipment.id"), index=True)
+    target_log_id: Mapped[int] = mapped_column(Integer)  # the target's own device_fault_log.id
+    component_code: Mapped[str] = mapped_column(String(128), default="")
+    component_description: Mapped[str] = mapped_column(String(255), default="")
+    # is_stop ("Record" on the target's own UI) is what actually gates
+    # whether a row counts as downtime (services/management_report.py) --
+    # a component fault that never stopped the machine isn't downtime.
+    is_stop: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_clean: Mapped[bool] = mapped_column(Boolean, default=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    cleared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 class UserRole(str, enum.Enum):
     """The three access levels (spec: per-role view restriction).
 

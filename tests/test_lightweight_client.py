@@ -393,3 +393,101 @@ async def test_get_active_fault_log_empty_when_no_active_faults(tmp_path):
     rows = await client.get_active_fault_log("205")
 
     assert rows == []
+
+
+# --- get_fault_log_history (monitoring/fault_log_backfill.py) ---
+# Unlike get_active_fault_log (is_clean=0 only, single page), this
+# fetches EVERY historical row for one device, paginated like
+# get_equipment_data.
+
+@pytest.mark.asyncio
+async def test_get_fault_log_history_filters_by_device_only_no_is_clean(tmp_path):
+    settings = _settings(tmp_path)
+    seen_params = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_params["filter"] = json.loads(request.url.params["filter"])
+        seen_params["op"] = json.loads(request.url.params["op"])
+        return httpx.Response(200, json={"total": 0, "rows": []})
+
+    client = LightweightTargetClient(settings)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    await client.get_fault_log_history("205")
+
+    assert seen_params["filter"] == {"device_id": "205"}
+    assert seen_params["op"] == {"device_id": "="}
+
+
+@pytest.mark.asyncio
+async def test_get_fault_log_history_paginates_until_total_reached(tmp_path):
+    settings = _settings(tmp_path)
+    seen_offsets = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        offset = int(request.url.params["offset"])
+        limit = int(request.url.params["limit"])
+        seen_offsets.append(offset)
+        remaining = max(0, 5 - offset)
+        page_rows = [
+            {"id": offset + i, "device_id": 205, "createtime": 1787940861, "code": "dianzicheng",
+             "is_clean": 1, "clean_time": 1787940973, "is_stop": 1, "clean_time_text": ""}
+            for i in range(min(limit, remaining))
+        ]
+        return httpx.Response(200, json={"total": 5, "rows": page_rows})
+
+    client = LightweightTargetClient(settings)
+    import monitoring.lightweight_client as lc
+    original_page_size = lc.DEVICE_FAULT_LOG_API_PAGE_SIZE
+    lc.DEVICE_FAULT_LOG_API_PAGE_SIZE = 2
+    try:
+        client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        rows = await client.get_fault_log_history("205")
+    finally:
+        lc.DEVICE_FAULT_LOG_API_PAGE_SIZE = original_page_size
+
+    assert len(rows) == 5
+    assert seen_offsets == [0, 2, 4]
+
+
+@pytest.mark.asyncio
+async def test_get_fault_log_history_raises_authentication_required(tmp_path):
+    from monitoring.models import AuthenticationRequiredError
+
+    settings = _settings(tmp_path)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "code": 0, "msg": "please log in", "data": "",
+            "url": "/NgsEmfuaOv.php/index/login?url=%2Fdevice%2Fdevice", "wait": 3,
+        })
+
+    client = LightweightTargetClient(settings)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(AuthenticationRequiredError):
+        await client.get_fault_log_history("205")
+
+
+@pytest.mark.asyncio
+async def test_get_fault_log_history_raises_extraction_error_on_bad_status(tmp_path):
+    settings = _settings(tmp_path)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="server error")
+
+    client = LightweightTargetClient(settings)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(ExtractionError):
+        await client.get_fault_log_history("205")
+
+
+@pytest.mark.asyncio
+async def test_get_fault_log_history_raises_target_unavailable_on_network_error(tmp_path):
+    settings = _settings(tmp_path)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    client = LightweightTargetClient(settings)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(TargetUnavailableError):
+        await client.get_fault_log_history("205")

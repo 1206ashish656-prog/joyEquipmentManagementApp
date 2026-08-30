@@ -645,14 +645,38 @@ a handful of venues) rather than a number on every point. X-axis labels
 thin themselves out (show every Nth one) rather than overlap when a
 month's worth of daily points would otherwise collide.
 
-**Downtime by time of day**: each `FaultIncident`'s duration (clipped
-to the selected period, same clipping idiom as `staff/leave_summary.py`'s
-month-boundary handling; a still-active incident counts through "now")
-is split across Morning (06:00–12:00) / Afternoon (12:00–17:00) /
+**Downtime, backfilled with real historical depth (2026-08-30)**:
+downtime is sourced from `FaultLogHistory` (`db/models.py`), backfilled
+from the target application's own historical Fault Information log
+(`monitoring/fault_log_backfill.py` — run `python -m
+monitoring.fault_log_backfill` any time; safe to re-run, a unique
+constraint on `(equipment_id, target_log_id)` makes it idempotent) —
+**not** `FaultIncident`, which only has data from whenever this app's
+own polling started running. The target's own log has real history per
+machine (435 rows across the 6 tracked machines as of this writing,
+some going back to January 2026), so the report's downtime section now
+has the same historical depth as its sales/revenue figures instead of
+reading zero for any date before this app existed.
+
+Only rows where `is_stop=True` (the target's own "Record" column) count
+as downtime — a component fault that never actually stopped the machine
+isn't downtime. Overlapping fault intervals on the same machine (two
+components failing at once) are merged into their union before summing,
+so simultaneous faults never double-count. Each interval (clipped to
+the selected period, same clipping idiom as `staff/leave_summary.py`'s
+month-boundary handling; a still-uncleared fault counts through "now")
+is then split across Morning (06:00–12:00) / Afternoon (12:00–17:00) /
 Evening (17:00–21:00) / Night (21:00–06:00) in **IST**, this app's
-established reporting timezone — an incident spanning multiple days or
+established reporting timezone — an interval spanning multiple days or
 crossing midnight is walked day-by-day and correctly merged into one
 Night total rather than reported as two separate fragments.
+
+**Worked example**: a real fault on Gravity ran `2026-08-28 13:02:44`
+to `14:02:05` IST (59m 21s). It's fully inside Afternoon, so it
+contributes `59m` to that machine's Afternoon column and `0m` to the
+other three for that period. An interval that actually crosses a
+boundary (say `11:50`–`12:10`) would split proportionally: 10 minutes
+to Morning, 10 to Afternoon.
 
 **PDF export** uses Playwright's Chromium — already a hard dependency
 of this project (`monitoring/browser_manager.py`) with the browser

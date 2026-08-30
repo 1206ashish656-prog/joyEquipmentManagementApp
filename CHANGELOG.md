@@ -9,6 +9,20 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Downtime backfilled with real historical depth** (2026-08-30), per
+explicit request. New `monitoring.fault_log_backfill` (run standalone,
+idempotent) pulls each machine's COMPLETE historical Fault Information
+log from the target application into a new `FaultLogHistory` table.
+The Senior Management Report's "Downtime per Machine" section now reads
+from this instead of `FaultIncident` (which only ever had data from
+whenever this app's own polling started) — 435 real historical rows
+backfilled across the 6 tracked machines, some going back to January
+2026. Only `is_stop=True` rows count as downtime; overlapping faults on
+the same machine are merged into their union before summing, so
+simultaneous component faults never double-count. See README's
+"Senior Management Report" section for a worked example of the
+downtime calculation.
+
 **Report generation moved to a background job (an "isolated report
 generation process")** (2026-08-30), per explicit request. The
 Senior Management Report's on-screen dashboard is gone — `/reports/

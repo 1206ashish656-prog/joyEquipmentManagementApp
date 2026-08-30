@@ -257,6 +257,70 @@ class LightweightTargetClient:
 
         return [map_fault_log_row_to_canonical(r) for r in data["rows"]]
 
+    async def get_fault_log_history(self, device_id: str) -> list[dict]:
+        """Fetches EVERY historical row (regardless of is_clean status)
+        from the target's Fault Information tab for one device, paginated
+        exactly like get_equipment_data() -- for the one-time/re-runnable
+        backfill (monitoring/fault_log_backfill.py) into FaultLogHistory,
+        the sole source for the Senior Management Report's downtime
+        section. Unlike get_active_fault_log() (best-effort, real-time
+        alert enrichment), a failure here should stop the backfill run
+        rather than be silently swallowed -- the caller doesn't catch
+        these the way monitoring/worker.py does."""
+        assert self._http is not None
+        url = f"{self.settings.target_base_url}{DEVICE_FAULT_LOG_API_PATH}"
+        limit = DEVICE_FAULT_LOG_API_PAGE_SIZE
+        offset = 0
+        all_rows: list[dict] = []
+        page_num = 1
+
+        while True:
+            params = {
+                "sort": "id",
+                "order": "desc",
+                "offset": str(offset),
+                "limit": str(limit),
+                "filter": json.dumps({"device_id": str(device_id)}),
+                "op": json.dumps({"device_id": "="}),
+            }
+            try:
+                resp = await self._http.get(url, params=params, headers={"X-Requested-With": "XMLHttpRequest"})
+            except httpx.HTTPError as e:
+                raise TargetUnavailableError(f"Could not reach fault log API: {e}") from e
+
+            if resp.status_code != 200:
+                raise ExtractionError(f"Fault log API returned HTTP {resp.status_code}")
+
+            try:
+                data = resp.json()
+            except json.JSONDecodeError as e:
+                raise ExtractionError(f"Fault log API did not return valid JSON: {e}") from e
+
+            if is_not_authenticated_payload(data):
+                raise AuthenticationRequiredError(
+                    "Fault log API reports not authenticated mid-fetch — session expired."
+                )
+
+            if not isinstance(data, dict) or "rows" not in data:
+                raise ExtractionError(
+                    f"Fault log API response missing 'rows' — schema may have changed. "
+                    f"Keys seen: {list(data.keys()) if isinstance(data, dict) else type(data)}"
+                )
+
+            rows = data["rows"]
+            all_rows.extend(map_fault_log_row_to_canonical(r) for r in rows)
+
+            total = data.get("total", len(all_rows))
+            offset += limit
+            if not rows or offset >= total:
+                break
+            page_num += 1
+            if page_num > _MAX_PAGINATION_PAGES:
+                logger.warning("Hit fault log pagination sanity guard (%s pages) — stopping", _MAX_PAGINATION_PAGES)
+                break
+
+        return all_rows
+
     async def close(self) -> None:
         if self._http is not None:
             await self._http.aclose()

@@ -32,3 +32,12 @@ def test_unknown_code_falls_back_to_readable_slug(caplog):
 def test_empty_code_does_not_crash():
     result = describe_fault_code("")
     assert result == "Unknown component Malfunction"
+
+
+def test_lookup_is_case_insensitive():
+    """Regression: confirmed live via monitoring.fault_log_backfill that
+    the target sends the same component code with inconsistent casing
+    across devices/history (e.g. "Uxingguangan" vs the table's
+    "uxingguangan") -- both must resolve to the same translation."""
+    assert describe_fault_code("Uxingguangan") == describe_fault_code("uxingguangan")
+    assert describe_fault_code("DIANZICHENG") == "Electronic scale Malfunction"

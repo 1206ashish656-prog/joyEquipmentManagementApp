@@ -2,9 +2,20 @@
 Senior-management report (admin-only, /reports/management — spec: an
 aggregated + monthly breakdown of sales/revenue/cost/profit, venue
 performance ranked by sales volume, and per-machine downtime broken
-down by time of day). Pure data computation — backend/api/reports.py
-renders this (HTML preview, and a PDF export via services/report_pdf.py)
-and gates access to admins.
+down by time of day). Pure data computation, run only from
+services/report_job_worker.py's background loop (per explicit request,
+"an isolated report generation process") — this module has no FastAPI
+or Playwright dependency of its own.
+
+Downtime is sourced from FaultLogHistory (db/models.py), backfilled
+from the target application's own historical Fault Information log
+(monitoring/fault_log_backfill.py) rather than from FaultIncident —
+per explicit request to backfill historical dates, since FaultIncident
+only ever has data from whenever this app's own polling started
+running, while the target's own log has real historical depth. See
+_compute_downtime()'s docstring for the exact rule (is_stop=True rows
+only, overlapping component faults merged into one span so simultaneous
+faults on one machine don't double-count).
 
 Cost/profit is a company-wide figure only: CostEntry has no per-venue
 or per-equipment link at all (Rent is tied to a Venue, but Oranges/
@@ -34,7 +45,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from db.models import CostEntry, Equipment, FaultIncident, OrderSummary, VenueMapping
+from db.models import CostEntry, Equipment, FaultLogHistory, OrderSummary, VenueMapping
 from orders.mapping import IST_TZ
 from orders.rollup import rollup as order_rollup
 
@@ -199,41 +210,75 @@ def _venue_lookup(db: Session) -> dict[str, str]:
     return {machine.lower(): venue for machine, venue in rows}
 
 
+def _merge_intervals(intervals: list[tuple[datetime, datetime]]) -> list[tuple[datetime, datetime]]:
+    """Collapses overlapping/touching [start, end) intervals into their
+    union -- two components failing on the same machine at overlapping
+    times must count as one span of actual machine downtime, not two
+    separately-summed durations (that would double-count the overlap and
+    overstate how long the machine was really down)."""
+    if not intervals:
+        return []
+    ordered = sorted(intervals, key=lambda iv: iv[0])
+    merged = [ordered[0]]
+    for start, end in ordered[1:]:
+        last_start, last_end = merged[-1]
+        if start <= last_end:
+            merged[-1] = (last_start, max(last_end, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
 def _compute_downtime(
     db: Session, start: str, end: str, equipment_ids: list[int] | None,
 ) -> list[MachineDowntime]:
+    """Sourced entirely from FaultLogHistory (backfilled from the
+    target's own Fault Information log, monitoring/fault_log_backfill.py)
+    rather than FaultIncident -- see db/models.py's FaultLogHistory
+    docstring for why: this has real historical depth, FaultIncident
+    only has data from whenever this app's own polling started. Only
+    is_stop=True rows count as downtime -- a component fault that never
+    actually stopped the machine (is_stop=False) isn't downtime."""
     period_start = datetime.combine(datetime.strptime(start, "%Y-%m-%d").date(), datetime.min.time(), tzinfo=IST_TZ).astimezone(timezone.utc)
     period_end_exclusive = (
         datetime.combine(datetime.strptime(end, "%Y-%m-%d").date(), datetime.min.time(), tzinfo=IST_TZ) + timedelta(days=1)
     ).astimezone(timezone.utc)
     now = datetime.now(timezone.utc)
 
-    query = select(FaultIncident, Equipment).join(Equipment, FaultIncident.equipment_id == Equipment.id).where(
-        FaultIncident.started_at < period_end_exclusive,
+    query = select(FaultLogHistory, Equipment).join(Equipment, FaultLogHistory.equipment_id == Equipment.id).where(
+        FaultLogHistory.occurred_at < period_end_exclusive,
+        FaultLogHistory.is_stop.is_(True),
     )
     if equipment_ids is not None:
-        query = query.where(FaultIncident.equipment_id.in_(equipment_ids))
-    incidents = db.execute(query).all()
+        query = query.where(FaultLogHistory.equipment_id.in_(equipment_ids))
+    log_rows = db.execute(query).all()
 
-    by_equipment: dict[str, MachineDowntime] = {}
-    for incident, equipment in incidents:
-        # Still-active incidents (no resolved_at yet) count as ongoing
-        # through "now" -- their downtime-so-far still belongs in the
-        # report if it overlaps the requested period.
-        incident_end = _as_aware_utc(incident.resolved_at) if incident.resolved_at else now
-        incident_start = _as_aware_utc(incident.started_at)
+    intervals_by_equipment: dict[str, list[tuple[datetime, datetime]]] = {}
+    for log, equipment in log_rows:
+        # A fault the target hasn't cleared yet (is_clean=False, no
+        # cleared_at) counts as ongoing through "now" -- its downtime-
+        # so-far still belongs in the report if it overlaps the period.
+        log_end = _as_aware_utc(log.cleared_at) if log.cleared_at else now
+        log_start = _as_aware_utc(log.occurred_at)
 
-        seg_start = max(incident_start, period_start)
-        seg_end = min(incident_end, period_end_exclusive)
+        seg_start = max(log_start, period_start)
+        seg_end = min(log_end, period_end_exclusive)
         if seg_end <= seg_start:
             continue
 
-        entry = by_equipment.setdefault(equipment.name, MachineDowntime(equipment_name=equipment.name, total_seconds=0.0))
-        entry.total_seconds += (seg_end - seg_start).total_seconds()
-        for bucket, seconds in _time_of_day_seconds(seg_start, seg_end).items():
-            entry.by_time_of_day[bucket] = entry.by_time_of_day.get(bucket, 0.0) + seconds
+        intervals_by_equipment.setdefault(equipment.name, []).append((seg_start, seg_end))
 
-    return sorted(by_equipment.values(), key=lambda d: d.total_seconds, reverse=True)
+    downtime: list[MachineDowntime] = []
+    for equipment_name, intervals in intervals_by_equipment.items():
+        merged = _merge_intervals(intervals)
+        entry = MachineDowntime(equipment_name=equipment_name, total_seconds=0.0)
+        for seg_start, seg_end in merged:
+            entry.total_seconds += (seg_end - seg_start).total_seconds()
+            for bucket, seconds in _time_of_day_seconds(seg_start, seg_end).items():
+                entry.by_time_of_day[bucket] = entry.by_time_of_day.get(bucket, 0.0) + seconds
+        downtime.append(entry)
+
+    return sorted(downtime, key=lambda d: d.total_seconds, reverse=True)
 
 
 def build_report(db: Session, start: str, end: str, equipment_id: int | None) -> ManagementReport:

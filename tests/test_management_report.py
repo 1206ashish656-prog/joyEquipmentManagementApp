@@ -7,9 +7,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from db.models import CostEntry, Equipment, FaultIncident, HealthState, IncidentStatus, OrderSummary, VenueMapping
+from db.models import CostEntry, Equipment, FaultLogHistory, OrderSummary, VenueMapping
 from orders.mapping import IST_TZ
 from services.management_report import (
+    _merge_intervals,
     _months_between,
     _time_of_day_seconds,
     build_report,
@@ -80,6 +81,39 @@ def test_time_of_day_empty_interval_is_zero():
     assert all(v == 0 for v in buckets.values())
 
 
+# --- _merge_intervals ---
+
+def test_merge_intervals_empty_list():
+    assert _merge_intervals([]) == []
+
+
+def test_merge_intervals_non_overlapping_stay_separate():
+    a, b = _ist(2026, 8, 15, 10), _ist(2026, 8, 15, 11)
+    c, d = _ist(2026, 8, 15, 12), _ist(2026, 8, 15, 13)
+    assert _merge_intervals([(a, b), (c, d)]) == [(a, b), (c, d)]
+
+
+def test_merge_intervals_overlapping_collapse_to_union():
+    a = _ist(2026, 8, 15, 10)
+    b = _ist(2026, 8, 15, 10, 30)
+    c = _ist(2026, 8, 15, 10, 15)
+    d = _ist(2026, 8, 15, 10, 45)
+    assert _merge_intervals([(a, b), (c, d)]) == [(a, d)]
+
+
+def test_merge_intervals_touching_intervals_merge():
+    a, b = _ist(2026, 8, 15, 10), _ist(2026, 8, 15, 11)
+    c, d = _ist(2026, 8, 15, 11), _ist(2026, 8, 15, 12)
+    assert _merge_intervals([(a, b), (c, d)]) == [(a, d)]
+
+
+def test_merge_intervals_unordered_input_still_merges_correctly():
+    a, b = _ist(2026, 8, 15, 10), _ist(2026, 8, 15, 11)
+    c, d = _ist(2026, 8, 15, 9), _ist(2026, 8, 15, 10, 30)
+    # Given out of order, the merged result must still be correct.
+    assert _merge_intervals([(a, b), (c, d)]) == [(c, b)]
+
+
 # --- build_report ---
 
 def _add_equipment(db, name, external_id) -> Equipment:
@@ -100,10 +134,16 @@ def _add_cost(db, date, category, amount, vendor=None, item=""):
     db.add(CostEntry(date=date, category=category, vendor_name=vendor, item_name=item, amount=Decimal(amount)))
 
 
-def _add_incident(db, equipment_id, started_at, resolved_at=None, status=IncidentStatus.RESOLVED):
-    db.add(FaultIncident(
-        equipment_id=equipment_id, fault_type="Simulated", severity="Critical",
-        current_health=HealthState.OFFLINE, started_at=started_at, resolved_at=resolved_at, status=status,
+_next_target_log_id = [1000]
+
+
+def _add_fault_log(db, equipment_id, occurred_at, cleared_at=None, is_stop=True):
+    _next_target_log_id[0] += 1
+    db.add(FaultLogHistory(
+        equipment_id=equipment_id, target_log_id=_next_target_log_id[0],
+        component_code="test_component", component_description="Test Component Malfunction",
+        is_stop=is_stop, is_clean=cleared_at is not None,
+        occurred_at=occurred_at, cleared_at=cleared_at,
     ))
 
 
@@ -200,15 +240,15 @@ def test_build_report_unmapped_machine_falls_back_to_unmapped_venue(db_session):
 
 
 def test_build_report_downtime_clipped_to_period(db_session):
-    """An incident starting before the period and resolved partway
-    through must only count the overlapping portion -- same clipping
-    idiom as staff/leave_summary.py's month-boundary handling."""
+    """A fault starting before the period and cleared partway through
+    must only count the overlapping portion -- same clipping idiom as
+    staff/leave_summary.py's month-boundary handling."""
     eq = _add_equipment(db_session, "NEXUS", "205")
     period_start_utc = datetime(2026, 8, 1, tzinfo=IST_TZ).astimezone(timezone.utc)
-    _add_incident(
+    _add_fault_log(
         db_session, eq.id,
-        started_at=period_start_utc - timedelta(hours=2),  # started before the period
-        resolved_at=period_start_utc + timedelta(hours=3),  # resolved 3h into the period
+        occurred_at=period_start_utc - timedelta(hours=2),  # started before the period
+        cleared_at=period_start_utc + timedelta(hours=3),  # cleared 3h into the period
     )
     db_session.flush()
 
@@ -219,13 +259,49 @@ def test_build_report_downtime_clipped_to_period(db_session):
     assert report.downtime[0].total_seconds == 3 * 3600  # only the in-period 3h, not the full 5h
 
 
+def test_build_report_downtime_excludes_non_stopping_faults(db_session):
+    """is_stop=False means the component fault never actually stopped
+    the machine -- it must not count as downtime at all."""
+    eq = _add_equipment(db_session, "NEXUS", "205")
+    period_start_utc = datetime(2026, 8, 1, tzinfo=IST_TZ).astimezone(timezone.utc)
+    _add_fault_log(
+        db_session, eq.id, occurred_at=period_start_utc, cleared_at=period_start_utc + timedelta(hours=1),
+        is_stop=False,
+    )
+    db_session.flush()
+
+    report = build_report(db_session, "2026-08-01", "2026-08-31", equipment_id=None)
+
+    assert report.downtime == []
+
+
+def test_build_report_downtime_merges_overlapping_faults(db_session):
+    """Two components failing at overlapping times on the same machine
+    must count as one span of downtime, not the sum of both durations
+    (that would double-count the overlap)."""
+    eq = _add_equipment(db_session, "NEXUS", "205")
+    period_start_utc = datetime(2026, 8, 1, tzinfo=IST_TZ).astimezone(timezone.utc)
+    # 10:00-10:30 and 10:15-10:45 -- overlapping, union is 10:00-10:45 = 45 min.
+    _add_fault_log(db_session, eq.id, occurred_at=period_start_utc, cleared_at=period_start_utc + timedelta(minutes=30))
+    _add_fault_log(
+        db_session, eq.id,
+        occurred_at=period_start_utc + timedelta(minutes=15), cleared_at=period_start_utc + timedelta(minutes=45),
+    )
+    db_session.flush()
+
+    report = build_report(db_session, "2026-08-01", "2026-08-31", equipment_id=None)
+
+    assert len(report.downtime) == 1
+    assert report.downtime[0].total_seconds == 45 * 60  # union, not 30+30=60
+
+
 def test_build_report_active_incident_counts_downtime_so_far(db_session):
     eq = _add_equipment(db_session, "NEXUS", "205")
     period_start_utc = datetime(2026, 8, 1, tzinfo=IST_TZ).astimezone(timezone.utc)
-    _add_incident(
+    _add_fault_log(
         db_session, eq.id,
-        started_at=period_start_utc + timedelta(hours=1),
-        resolved_at=None, status=IncidentStatus.ACTIVE,
+        occurred_at=period_start_utc + timedelta(hours=1),
+        cleared_at=None,
     )
     db_session.flush()
 
