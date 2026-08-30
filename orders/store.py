@@ -15,8 +15,9 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from db.models import OrderSummary, OrderSummaryRun, OrderSummaryRunStatus
+from db.models import OrderPaymentRecord, OrderSummary, OrderSummaryRun, OrderSummaryRunStatus
 
+from .mapping import OrderRecord
 from .summary import GroupSummary
 
 
@@ -71,6 +72,49 @@ def save_day(session: Session, date: str, groups: list[GroupSummary], raw_orders
                 qualifying_orders=qualifying,
             )
         )
+
+
+def save_order_payment_records(session: Session, date: str, records: list[OrderRecord]) -> int:
+    """Persists individual orders for PayU reconciliation
+    (services/reconciliation.py) -- separate from, and in addition to,
+    save_day()'s aggregation. ALL orders for the day are stored here
+    (not just the "qualifying" Completed+Success ones save_day() counts
+    towards the summary), since a failed/cancelled order with a payment
+    attempt is exactly the kind of row reconciliation needs to see (e.g.
+    "PayU shows this was captured but the machine recorded it as
+    Non-payment").
+
+    Idempotent: replaces any existing rows for this date (same
+    delete-then-reinsert pattern as save_day()) via order_id, so
+    re-running a backfill never duplicates. Returns how many rows were
+    stored."""
+    old_rows = session.execute(
+        select(OrderPaymentRecord).where(OrderPaymentRecord.order_date == date)
+    ).scalars().all()
+    for row in old_rows:
+        session.delete(row)
+    session.flush()
+
+    stored = 0
+    for r in records:
+        if not r.order_id:
+            continue
+        session.add(
+            OrderPaymentRecord(
+                order_id=r.order_id,
+                order_code=r.order_code,
+                device_app=r.device_app,
+                order_date=r.order_date,
+                order_money=r.order_money,
+                pay_type=r.pay_type,
+                payment_status=r.payment_status,
+                out_trade_no=r.out_trade_no or None,
+                created_at_target=datetime.fromtimestamp(r.createtime, tz=timezone.utc) if r.createtime else datetime.now(timezone.utc),
+                paid_at=datetime.fromtimestamp(r.paytime, tz=timezone.utc) if r.paytime else None,
+            )
+        )
+        stored += 1
+    return stored
 
 
 def mark_day_failed(session: Session, date: str, error_message: str) -> None:

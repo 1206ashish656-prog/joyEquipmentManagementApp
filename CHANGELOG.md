@@ -9,6 +9,20 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**PayU reconciliation** (2026-08-30, admin-only, `/reconciliation`),
+per explicit request. Matches each machine-recorded UPI order against
+PayU's own transaction records via `out_trade_no` <-> `txnid` (confirmed
+with the account owner as the correct correlation key after inspecting
+real order data — the target's own per-order records expose PayU-shaped
+integration fields showing its backend proxies a PayU-compatible
+gateway). New `OrderPaymentRecord` table stores individual orders (not
+just `OrderSummary`'s daily aggregates) going forward. New
+`services/payu_client.py` implements PayU's "Get Transaction Details"
+API (verified against PayU's own docs, including one correction to
+their documented response shape). Add `PAYU_MERCHANT_KEY`/
+`PAYU_MERCHANT_SALT` to `.env` to enable — see README's "PayU
+Reconciliation" section.
+
 **Downtime backfilled with real historical depth** (2026-08-30), per
 explicit request. New `monitoring.fault_log_backfill` (run standalone,
 idempotent) pulls each machine's COMPLETE historical Fault Information

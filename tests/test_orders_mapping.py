@@ -99,6 +99,31 @@ def test_raw_preserved_for_audit():
     assert order.raw is raw
 
 
+# --- out_trade_no / paytime (services/reconciliation.py's match key) ---
+
+def test_out_trade_no_and_paytime_mapped():
+    order = map_api_row_to_order(_raw_row(out_trade_no="30388839606", paytime=1787940900))
+    assert order.out_trade_no == "30388839606"
+    assert order.paytime == 1787940900
+
+
+def test_missing_out_trade_no_defaults_to_empty_string():
+    """A cancelled/never-initiated-payment order has no out_trade_no --
+    must default to "" (falsy, storable), never raise."""
+    order = map_api_row_to_order(_raw_row())
+    assert order.out_trade_no == ""
+
+
+def test_missing_paytime_defaults_to_none():
+    order = map_api_row_to_order(_raw_row())
+    assert order.paytime is None
+
+
+def test_null_paytime_defaults_to_none_not_zero():
+    order = map_api_row_to_order(_raw_row(paytime=None))
+    assert order.paytime is None
+
+
 # --- format_ist() -- shared display helper (backend/templating.py's
 # `ist` Jinja filter and services/fault_digest.py's email tables both
 # use this same implementation) ---

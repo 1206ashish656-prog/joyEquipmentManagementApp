@@ -51,6 +51,17 @@ FIELD_MAP: dict[str, str] = {
     "orange_num": "orange_num",
     "orange_weight": "orange_weight",
     "createtime": "createtime",
+    # Confirmed live (2026-08-30): the target's own embedded per-order
+    # "clients" object exposes PayU-shaped integration fields
+    # (upi_key/upi_url*) whose endpoint path matches PayU's own
+    # /merchant/postservice API -- this client is a proxy in front of
+    # PayU. out_trade_no is the merchant-supplied reference sent to that
+    # gateway (consistently populated, unlike `trade_no` which was empty
+    # on every order checked, including a successful one) -- confirmed
+    # with the user that this is the same "external order id" PayU's own
+    # transaction records reference. See services/reconciliation.py.
+    "out_trade_no": "out_trade_no",
+    "paytime": "paytime",
 }
 
 # The filter this feature was explicitly asked to apply when computing the

@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Reconciliation — Equipment Monitor{% endblock %}
+{% block content %}
+<h1>Machine Server ⇄ PayU Reconciliation</h1>
+
+{% if not payu_configured %}
+<div class="callout">PayU credentials aren't configured yet. Add <code>PAYU_MERCHANT_KEY</code> and <code>PAYU_MERCHANT_SALT</code> to <code>.env</code> (from your <a href="https://payu.in/business/transactions" target="_blank" rel="noopener">PayU dashboard</a>) to enable this page.</div>
+{% else %}
+<p class="callout">Matches each machine-recorded UPI order against PayU's own transaction records for the period, via the shared <code>out_trade_no</code> / PayU <code>txnid</code> reference. Only UPI orders are compared — "Self-check repair" orders never reach PayU.</p>
+
+<section class="status-panel">
+  <form method="get" action="/reconciliation" class="order-filter-form">
+    <div class="filter-group">
+      <label>Start<input type="date" name="start" value="{{ start }}"></label>
+      <label>End<input type="date" name="end" value="{{ end }}"></label>
+    </div>
+    <input type="hidden" name="run" value="1">
+    <button type="submit">Run Reconciliation</button>
+  </form>
+</section>
+
+{% if error %}
+<p class="error">{{ error }}</p>
+{% endif %}
+
+{% if report %}
+<section class="counts" style="grid-template-columns: repeat(4, 1fr);">
+  <div class="count-tile"><div class="n">{{ report.matched_count }}</div><div class="label">Matched</div></div>
+  <div class="count-tile"><div class="n">{{ report.mismatch_count }}</div><div class="label">Amount Mismatch</div></div>
+  <div class="count-tile"><div class="n">{{ report.missing_in_payu_count }}</div><div class="label">Missing in PayU</div></div>
+  <div class="count-tile"><div class="n">{{ report.missing_on_machine_count }}</div><div class="label">Missing on Machine Server</div></div>
+</section>
+
+{% if not report.has_problems %}
+<p class="callout" style="border-left-color: var(--healthy);">No discrepancies found for {{ report.start }} to {{ report.end }} — every PayU-eligible machine order matches a PayU transaction with the same amount.</p>
+{% endif %}
+
+<section>
+  <h2>Detail</h2>
+  <table class="equipment-table">
+    <thead><tr><th>Status</th><th>Order Code</th><th>Machine</th><th>Date</th><th>out_trade_no / txnid</th><th>Machine Amount</th><th>PayU Amount</th><th>PayU Status</th><th>PayU ID</th></tr></thead>
+    <tbody>
+      {% for row in report.rows %}
+      <tr>
+        <td>
+          {% if row.match_status == "Matched" %}<span class="badge badge-healthy">Matched</span>
+          {% elif row.match_status == "Amount Mismatch" %}<span class="badge badge-warning">Amount Mismatch</span>
+          {% else %}<span class="badge badge-malfunction">{{ row.match_status }}</span>
+          {% endif %}
+        </td>
+        <td>{{ row.order_code or "—" }}</td>
+        <td>{{ row.device_app or "—" }}</td>
+        <td>{{ row.order_date or "—" }}</td>
+        <td>{{ row.out_trade_no or "—" }}</td>
+        <td>{% if row.machine_amount is not none %}₹{{ "%.2f"|format(row.machine_amount) }}{% else %}—{% endif %}</td>
+        <td>{% if row.payu_amount is not none %}₹{{ "%.2f"|format(row.payu_amount) }}{% else %}—{% endif %}</td>
+        <td>{{ row.payu_status or "—" }}</td>
+        <td>{{ row.payu_mihpayid or "—" }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="9">No discrepancies or matches to show — either nothing to reconcile in this period, or every PayU-eligible order matched cleanly with no rows worth listing.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% elif ran %}
+<p class="callout">No orders or PayU transactions found for this period.</p>
+{% endif %}
+{% endif %}
+{% endblock %}

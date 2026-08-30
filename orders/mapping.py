@@ -89,6 +89,11 @@ class OrderRecord:
     cup_num: int
     createtime: int  # raw unix timestamp, as returned by the target
     order_date: str  # YYYY-MM-DD, computed in IST_TZ (India Standard Time)
+    # The merchant-side reference sent to the PayU-shaped payment gateway
+    # -- the correlation key for services/reconciliation.py. May be blank
+    # for a cancelled/never-initiated-payment order.
+    out_trade_no: str = ""
+    paytime: int | None = None  # raw unix timestamp of payment completion, if paid
     raw: dict = field(default_factory=dict)
 
 
@@ -124,5 +129,7 @@ def map_api_row_to_order(row: dict) -> OrderRecord:
         cup_num=_to_int(mapped.get("cup_num")),
         createtime=createtime,
         order_date=order_date,
+        out_trade_no=str(mapped.get("out_trade_no") or "").strip(),
+        paytime=_to_int(mapped.get("paytime")) or None,
         raw=row,
     )

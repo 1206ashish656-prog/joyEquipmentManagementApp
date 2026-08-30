@@ -48,7 +48,7 @@ from monitoring.models import MonitoringError
 from .backfill import run_backfill
 from .client import OrdersClient
 from .mapping import IST_TZ
-from .store import save_day
+from .store import save_day, save_order_payment_records
 from .summary import compute_daily_groups
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -88,6 +88,7 @@ async def refresh_date(client: OrdersClient, date: str) -> bool:
     groups = compute_daily_groups(date, records)
     with db_base.get_session() as db_session:
         save_day(db_session, date, groups, raw_orders_fetched=len(records))
+        save_order_payment_records(db_session, date, records)
 
     qualifying = sum(g.number_of_orders for g in groups)
     logger.info(

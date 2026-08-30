@@ -573,6 +573,62 @@ ALTER TABLE cost_entry ADD CONSTRAINT uq_cost_entry_recurring
 ```
 A fresh install gets all of this for free via `create_all()`.
 
+## PayU Reconciliation (2026-08-30, admin-only, `/reconciliation`)
+
+Matches each machine-recorded UPI order against PayU's own transaction
+records for a chosen date range — a separate endpoint from Cost
+Management/Order Summary, per explicit request.
+
+**How the match works.** Confirmed live (2026-08-30) before writing any
+code: every raw order row from the target application embeds a
+`clients` object exposing PayU-shaped integration fields
+(`upi_key`, `upi_url1/2/3` pointing at a `/merchant/postservice`-shaped
+endpoint) — the target's own backend proxies a PayU-compatible gateway.
+`out_trade_no` (consistently populated; `trade_no` was empty on every
+order checked, including a successful one, so it's not usable) is the
+merchant-supplied reference sent to that gateway — confirmed with the
+account owner that this is the same "external order id" PayU's own
+transaction records reference alongside PayU's own internal id
+(`mihpayid`). `services/reconciliation.py` matches on
+`OrderPaymentRecord.out_trade_no == PayUTransaction.txnid`.
+
+Only `pay_type == "UPI"` orders are PayU-eligible — the only other
+value ever seen, `"Self-check repair"`, is a free/maintenance category
+PayU never sees, so it's excluded from matching entirely rather than
+appearing as a false "missing" row. Four outcomes: **Matched**, **Amount
+Mismatch** (same reference, different amount), **Missing in PayU** (the
+machine recorded a payment but PayU has no record — the most serious
+case), **Missing on Machine Server** (a successful PayU transaction
+with no corresponding order).
+
+**New `OrderPaymentRecord` table** (individual per-order rows, unlike
+`OrderSummary`'s daily aggregates) — needed because reconciliation has
+to match one specific sale to one specific gateway transaction, which a
+grouped-by-(date, device_app, price, pay_type) row can't do. Populated
+going forward by `orders/realtime_worker.py` and `orders/backfill.py`,
+right alongside (not instead of) the existing `OrderSummary`
+aggregation — same raw fetch, two persistence paths. New table, no
+manual migration needed (`create_all()` handles it on any existing
+deployment).
+
+**`services/payu_client.py`** implements PayU's own "Get Transaction
+Details" API (`POST .../merchant/postservice.php?form=2`,
+`command=get_Transaction_Details`, SHA512 hash of
+`key|command|start_date|salt`) — confirmed against PayU's official docs
+(docs.payu.in) before implementing, including one correction their own
+docs' prose got wrong in a spot-check: the response key is
+`Transaction_details` (capital T) and it's a JSON **array**, not the
+dict-keyed-by-txnid shape a first read suggested.
+
+**Credentials**: add `PAYU_MERCHANT_KEY` and `PAYU_MERCHANT_SALT` to
+`.env` (from your [PayU dashboard](https://payu.in/business/transactions)
+— account/API settings) — see `.env.example`. `PAYU_ENV=test` switches
+to PayU's sandbox base URL. Until both are set, `/reconciliation` shows
+a setup message instead of failing confusingly. The PayU call only
+fires when an admin explicitly clicks "Run Reconciliation" (`?run=1`)
+— never on page load — same "nothing calls a paid external API
+silently" rule every other admin-triggered action in this app follows.
+
 ## Senior Management Report (2026-08-30, admin-only, `/reports/management`)
 
 An aggregated + monthly breakdown of sales/revenue/cost/profit, venue

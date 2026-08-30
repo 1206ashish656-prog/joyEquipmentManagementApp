@@ -397,6 +397,43 @@ class OrderSummary(Base):
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class OrderPaymentRecord(Base):
+    """One row per individual order (not aggregated, unlike OrderSummary)
+    -- exists specifically to support PayU reconciliation
+    (services/reconciliation.py, backend/api/reconciliation.py), which
+    needs to match one machine-recorded sale to one gateway transaction
+    and OrderSummary's grouped-by-(date, device_app, price, pay_type)
+    shape can't do that. Populated going forward by
+    orders/realtime_worker.py and orders/backfill.py, right alongside
+    (not instead of) the existing OrderSummary aggregation -- see
+    orders/store.py's save_order_payment_records().
+
+    out_trade_no is the reconciliation key: the merchant-supplied
+    reference sent to the target's PayU-shaped payment gateway
+    (confirmed live 2026-08-30 -- the target's own per-order "clients"
+    object exposes upi_key/upi_url* fields whose endpoint path matches
+    PayU's own /merchant/postservice API), and per explicit confirmation
+    from the account owner, the same "external order id" PayU's own
+    transaction records reference alongside PayU's own internal id.
+    Unique on order_id (the target's own numeric order id) so re-running
+    a backfill for an already-recorded date never duplicates rows.
+    """
+    __tablename__ = "order_payment_record"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)  # target's own numeric order id
+    order_code: Mapped[str] = mapped_column(String(64), index=True)
+    device_app: Mapped[str] = mapped_column(String(128), index=True)  # equipment name, e.g. "NEXUS"
+    order_date: Mapped[str] = mapped_column(String(10), index=True)  # 'YYYY-MM-DD', IST calendar day
+    order_money: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    pay_type: Mapped[str] = mapped_column(String(32))  # e.g. "UPI" -- only UPI orders are PayU-eligible
+    payment_status: Mapped[str] = mapped_column(String(64), default="")  # pay_state_text, e.g. "Have paid"
+    out_trade_no: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    created_at_target: Mapped[datetime] = mapped_column(DateTime(timezone=True))  # order's own createtime
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # order's own paytime
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
 # --- Venue mapping (access control — see User.role/venue_provider above) ---
 #
 # A separate, independent table (not a column on Equipment/OrderSummary)

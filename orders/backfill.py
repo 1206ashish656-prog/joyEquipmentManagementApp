@@ -24,7 +24,7 @@ from monitoring.config import load_settings
 from monitoring.models import MonitoringError
 
 from .client import OrdersClient
-from .store import get_cached_dates, mark_day_failed, save_day
+from .store import get_cached_dates, mark_day_failed, save_day, save_order_payment_records
 from .summary import compute_daily_groups
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -73,6 +73,7 @@ async def run_backfill(start: str, end: str, force: bool = False) -> None:
 
             with db_base.get_session() as db_session:
                 save_day(db_session, date, groups, raw_orders_fetched=len(records))
+                save_order_payment_records(db_session, date, records)
 
             qualifying = sum(g.number_of_orders for g in groups)
             logger.info(

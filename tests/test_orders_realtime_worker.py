@@ -57,9 +57,13 @@ class FakeOrdersClient:
         return self.records_by_date.get(date_str, [])
 
 
+_next_order_id = [0]  # each call defaults to a fresh id -- OrderPaymentRecord.order_id is unique per order
+
+
 def _order(device_app="NEXUS", order_money="120.00", orange_num=3, **kw) -> OrderRecord:
+    _next_order_id[0] += 1
     return OrderRecord(
-        order_id=kw.get("order_id", "1"), order_code=kw.get("order_code", "X"), device_id="205",
+        order_id=kw.get("order_id", str(_next_order_id[0])), order_code=kw.get("order_code", "X"), device_id="205",
         device_app=device_app, order_status="Completed", payment_status="Have paid", delivery_status="Success",
         order_money=Decimal(order_money), orange_num=orange_num, orange_weight=Decimal("200"),
         pay_type="UPI", goods_name="orange juice", cup_num=1, createtime=0,

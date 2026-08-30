@@ -9,8 +9,9 @@ from decimal import Decimal
 
 from sqlalchemy import select
 
-from db.models import OrderSummary, OrderSummaryRun, OrderSummaryRunStatus
-from orders.store import get_cached_dates, mark_day_failed, save_day
+from db.models import OrderPaymentRecord, OrderSummary, OrderSummaryRun, OrderSummaryRunStatus
+from orders.mapping import OrderRecord
+from orders.store import get_cached_dates, mark_day_failed, save_day, save_order_payment_records
 from orders.summary import GroupSummary
 
 
@@ -83,3 +84,69 @@ def test_multiple_dates_independent(db_session):
     save_day(db_session, "2026-08-22", [_group(date="2026-08-22")], raw_orders_fetched=5)
     save_day(db_session, "2026-08-23", [_group(date="2026-08-23")], raw_orders_fetched=5)
     assert get_cached_dates(db_session) == {"2026-08-22", "2026-08-23"}
+
+
+# --- save_order_payment_records (services/reconciliation.py's data source) ---
+
+def _order_record(
+    order_id="1001", order_code="20260823001", device_app="NEXUS", order_date="2026-08-23",
+    order_money="120.00", pay_type="UPI", payment_status="Have paid", out_trade_no="30388839606",
+    createtime=1787940861, paytime=1787940900,
+):
+    return OrderRecord(
+        order_id=order_id, order_code=order_code, device_id="205", device_app=device_app,
+        order_status="Completed", payment_status=payment_status, delivery_status="Success",
+        order_money=Decimal(order_money), orange_num=2, orange_weight=Decimal("200"),
+        pay_type=pay_type, goods_name="orange juice", cup_num=1,
+        createtime=createtime, order_date=order_date, out_trade_no=out_trade_no, paytime=paytime,
+    )
+
+
+def test_save_order_payment_records_stores_all_orders(db_session):
+    records = [_order_record(order_id="1"), _order_record(order_id="2", payment_status="Non-payment", out_trade_no="")]
+    stored = save_order_payment_records(db_session, "2026-08-23", records)
+
+    assert stored == 2
+    rows = db_session.execute(select(OrderPaymentRecord).where(OrderPaymentRecord.order_date == "2026-08-23")).scalars().all()
+    assert len(rows) == 2  # both stored, not just the "qualifying"/paid one
+
+
+def test_save_order_payment_records_preserves_out_trade_no(db_session):
+    save_order_payment_records(db_session, "2026-08-23", [_order_record(order_id="1", out_trade_no="30388839606")])
+    row = db_session.execute(select(OrderPaymentRecord)).scalar_one()
+    assert row.out_trade_no == "30388839606"
+    assert row.pay_type == "UPI"
+    assert row.order_money == Decimal("120.00")
+    assert row.paid_at is not None
+
+
+def test_save_order_payment_records_blank_out_trade_no_stored_as_null(db_session):
+    save_order_payment_records(db_session, "2026-08-23", [_order_record(order_id="1", out_trade_no="")])
+    row = db_session.execute(select(OrderPaymentRecord)).scalar_one()
+    assert row.out_trade_no is None
+
+
+def test_save_order_payment_records_skips_rows_without_order_id(db_session):
+    stored = save_order_payment_records(db_session, "2026-08-23", [_order_record(order_id="")])
+    assert stored == 0
+    assert db_session.execute(select(OrderPaymentRecord)).scalars().all() == []
+
+
+def test_resaving_a_date_replaces_payment_records_not_duplicates(db_session):
+    save_order_payment_records(db_session, "2026-08-23", [_order_record(order_id="1", order_money="120.00")])
+    save_order_payment_records(db_session, "2026-08-23", [_order_record(order_id="1", order_money="150.00")])
+
+    rows = db_session.execute(select(OrderPaymentRecord)).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].order_money == Decimal("150.00")
+
+
+def test_save_order_payment_records_scoped_per_date(db_session):
+    save_order_payment_records(db_session, "2026-08-22", [_order_record(order_id="1", order_date="2026-08-22")])
+    save_order_payment_records(db_session, "2026-08-23", [_order_record(order_id="2", order_date="2026-08-23")])
+
+    assert len(db_session.execute(select(OrderPaymentRecord)).scalars().all()) == 2
+    # Re-saving one date must not touch the other date's rows.
+    save_order_payment_records(db_session, "2026-08-23", [_order_record(order_id="3", order_date="2026-08-23")])
+    remaining_ids = {r.order_id for r in db_session.execute(select(OrderPaymentRecord)).scalars().all()}
+    assert remaining_ids == {"1", "3"}

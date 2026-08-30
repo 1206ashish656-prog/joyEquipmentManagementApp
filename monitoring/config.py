@@ -69,6 +69,14 @@ class Settings:
 
     web_secret_key: str
 
+    # PayU (reconciliation — services/payu_client.py,
+    # services/reconciliation.py, backend/api/reconciliation.py). The
+    # merchant key/salt come from the PayU dashboard
+    # (https://payu.in/business/transactions), never hardcoded.
+    payu_merchant_key: str
+    payu_merchant_salt: str
+    payu_env: str  # "test" | "production" — selects the base URL
+
     @property
     def has_credentials(self) -> bool:
         return bool(self.target_username and self.target_password)
@@ -89,6 +97,14 @@ class Settings:
     @property
     def smtp_configured(self) -> bool:
         return bool(self.smtp_host)
+
+    @property
+    def payu_configured(self) -> bool:
+        return bool(self.payu_merchant_key and self.payu_merchant_salt)
+
+    @property
+    def payu_base_url(self) -> str:
+        return "https://test.payu.in" if self.payu_env == "test" else "https://info.payu.in"
 
 
 def load_settings() -> Settings:
@@ -123,6 +139,9 @@ def load_settings() -> Settings:
         alert_on_escalation=_get_bool("ALERT_ON_ESCALATION", True),
         send_recovery_notifications=_get_bool("SEND_RECOVERY_NOTIFICATIONS", True),
         web_secret_key=os.getenv("WEB_SECRET_KEY", "").strip(),
+        payu_merchant_key=os.getenv("PAYU_MERCHANT_KEY", "").strip(),
+        payu_merchant_salt=os.getenv("PAYU_MERCHANT_SALT", "").strip(),
+        payu_env=os.getenv("PAYU_ENV", "production").strip().lower(),
     )
 
 
