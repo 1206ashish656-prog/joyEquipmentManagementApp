@@ -16,6 +16,9 @@ data/
 playwright-report/
 test-results/
 
+# Railway/VPS deployment logs pulled down for local debugging
+deployment_logs/
+
 # Test run output (may contain real equipment data from the target app)
 tests/*/results/*.json
 
