@@ -214,8 +214,8 @@ section { margin-bottom: 32px; }
 .login-box { max-width: 380px; margin: 70px auto; text-align: center; }
 .login-box h1 { font-size: 1.4rem; }
 
-table.kv { border-collapse: collapse; }
-table.kv td { padding: 5px 12px 5px 0; vertical-align: top; }
+table.kv { border-collapse: collapse; max-width: 100%; }
+table.kv td { padding: 5px 12px 5px 0; vertical-align: top; overflow-wrap: anywhere; }
 table.kv td:first-child { color: var(--muted); white-space: nowrap; }
 
 .counts { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; }
