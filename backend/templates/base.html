@@ -29,31 +29,36 @@
 {% if user %}
 <nav class="topnav">
   <div class="brand"><a href="{{ home_url(user) }}">🍊 JOY Equipment Monitor</a></div>
-  <div class="links">
-    {% if user.role in ("admin", "operations") %}
-    <a href="/">Dashboard</a>
-    <a href="/faults">Active Faults</a>
-    <a href="/subscriptions">My Alerts</a>
-    <a href="/inventory">Inventory</a>
-    {% endif %}
-    {% if user.role in ("admin", "venue_partner") %}
-    <a href="/orders/summary">Order Summary</a>
-    {% endif %}
-    {% if user.role == "admin" %}
-    <a href="/costs">Cost Management</a>
-    <a href="/venues">Venues</a>
-    <a href="/staff">Staff & Leaves</a>
-    <a href="/alert-recipients">Alert Recipients</a>
-    <a href="/reports/management">Management Report</a>
-    <a href="/reconciliation">Reconciliation</a>
-    <a href="/users">Users</a>
-    {% endif %}
-  </div>
-  <div class="userbox">
-    <span>{{ user.name }} ({{ user.role }}{% if user.venue_provider %} · {{ user.venue_provider }}{% endif %})</span>
-    <form method="post" action="/logout">
-      <button type="submit" class="linklike">Logout</button>
-    </form>
+  <button id="nav-toggle" class="nav-toggle" type="button" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="nav-collapse">
+    <span></span><span></span><span></span>
+  </button>
+  <div class="nav-collapse" id="nav-collapse">
+    <div class="links">
+      {% if user.role in ("admin", "operations") %}
+      <a href="/">Dashboard</a>
+      <a href="/faults">Active Faults</a>
+      <a href="/subscriptions">My Alerts</a>
+      <a href="/inventory">Inventory</a>
+      {% endif %}
+      {% if user.role in ("admin", "venue_partner") %}
+      <a href="/orders/summary">Order Summary</a>
+      {% endif %}
+      {% if user.role == "admin" %}
+      <a href="/costs">Cost Management</a>
+      <a href="/venues">Venues</a>
+      <a href="/staff">Staff & Leaves</a>
+      <a href="/alert-recipients">Alert Recipients</a>
+      <a href="/reports/management">Management Report</a>
+      <a href="/reconciliation">Reconciliation</a>
+      <a href="/users">Users</a>
+      {% endif %}
+    </div>
+    <div class="userbox">
+      <span>{{ user.name }} ({{ user.role }}{% if user.venue_provider %} · {{ user.venue_provider }}{% endif %})</span>
+      <form method="post" action="/logout">
+        <button type="submit" class="linklike">Logout</button>
+      </form>
+    </div>
   </div>
 </nav>
 {% endif %}
@@ -61,5 +66,6 @@
 {% block content %}{% endblock %}
 </main>
 <script src="/static/theme.js"></script>
+<script src="/static/nav.js"></script>
 </body>
 </html>

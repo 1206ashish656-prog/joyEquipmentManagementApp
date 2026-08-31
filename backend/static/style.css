@@ -99,6 +99,7 @@ body {
 }
 
 main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+@media (max-width: 560px) { main { padding: 16px; } }
 
 h1 { margin-top: 0; font-weight: 700; letter-spacing: -0.01em; }
 h2 { font-size: 1.02rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
@@ -118,10 +119,52 @@ a:hover { text-decoration: underline; }
   box-shadow: var(--shadow);
 }
 .topnav .brand a { color: var(--text); font-weight: 800; font-size: 1.15rem; text-decoration: none; }
-.topnav .links { display: flex; gap: 18px; flex: 1; }
+.topnav .nav-collapse { display: flex; align-items: center; gap: 24px; flex: 1; }
+.topnav .links { display: flex; gap: 18px; flex: 1; flex-wrap: wrap; }
 .topnav .links a { color: var(--muted); font-weight: 500; }
 .topnav .links a:hover { color: var(--brand-dark); text-decoration: none; }
-.topnav .userbox { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 0.9rem; }
+.topnav .userbox { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 0.9rem; white-space: nowrap; }
+
+/* Hamburger: hidden until the collapsed layout kicks in below. Three
+   plain bars rather than an icon font/SVG — nothing else here pulls in
+   an icon set, not worth adding one for a single glyph. */
+.nav-toggle {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 34px;
+  height: 34px;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  cursor: pointer;
+  padding: 0;
+}
+.nav-toggle span { display: block; width: 18px; height: 2px; margin: 0 auto; background: var(--text); }
+
+@media (max-width: 780px) {
+  .topnav {
+    flex-wrap: wrap;
+    padding: 12px 60px 12px 16px; /* right padding reserves room for the fixed theme-toggle circle */
+    gap: 12px;
+  }
+  .topnav .brand a { font-size: 1.02rem; }
+  .nav-toggle { display: flex; }
+  .topnav .nav-collapse {
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    flex-basis: 100%;
+    order: 3;
+  }
+  .topnav .nav-collapse.open { display: flex; }
+  .topnav .links { flex-direction: column; gap: 0; flex: none; }
+  .topnav .links a { padding: 11px 4px; border-top: 1px solid var(--border); }
+  .topnav .userbox { flex-direction: row; justify-content: space-between; padding: 12px 4px 4px; }
+}
 
 /* Theme toggle: fixed so it's reachable on every page, including login. */
 .theme-toggle {
@@ -144,6 +187,7 @@ a:hover { text-decoration: underline; }
   padding: 0;
 }
 .theme-toggle:hover { border-color: var(--brand); }
+@media (max-width: 780px) { .theme-toggle { top: 10px; right: 12px; width: 34px; height: 34px; } }
 .theme-toggle .theme-icon-dark { display: none; }
 :root[data-theme="dark"] .theme-toggle .theme-icon-light { display: none; }
 :root[data-theme="dark"] .theme-toggle .theme-icon-dark { display: inline; }
@@ -175,6 +219,13 @@ table.kv td { padding: 5px 12px 5px 0; vertical-align: top; }
 table.kv td:first-child { color: var(--muted); white-space: nowrap; }
 
 .counts { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; }
+/* Several templates set their own column count inline (repeat(4, 1fr),
+   repeat(6, 1fr)...) since different pages show different tile counts —
+   an inline style otherwise beats any external media query, so these
+   two responsive tiers need !important to actually take over on narrow
+   screens regardless of what a given page requested. */
+@media (max-width: 900px) { .counts { grid-template-columns: repeat(3, 1fr) !important; } }
+@media (max-width: 560px) { .counts { grid-template-columns: repeat(2, 1fr) !important; gap: 10px; } }
 .count-tile {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -200,6 +251,23 @@ table.equipment-table th { background: var(--brand-tint); color: var(--text); fo
 table.equipment-table tr:last-child td { border-bottom: none; }
 table.equipment-table tr:hover td { background: var(--brand-tint); }
 
+/* Every data table on the site uses this one class (20+ templates) —
+   fixing scroll behavior here covers all of them instead of touching
+   each template's markup individually. `display: block` turns the
+   table's own box into the scroll container while row/cell layout
+   underneath is untouched, so columns stay aligned; the alternative
+   (wrapping every template's <table> in a div) would mean editing
+   every template for the same effect. */
+@media (max-width: 700px) {
+  table.equipment-table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overflow: auto;
+    white-space: nowrap;
+  }
+}
+
 .badge { display: inline-block; padding: 3px 12px; border-radius: 999px; font-size: 0.82rem; font-weight: 600; }
 .badge-healthy { background: var(--healthy-bg); color: var(--healthy); }
 .badge-warning { background: var(--warning-bg); color: var(--warning); }
@@ -208,7 +276,7 @@ table.equipment-table tr:hover td { background: var(--brand-tint); }
 .badge-unknown { background: var(--unknown-bg); color: var(--unknown); }
 
 .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-@media (max-width: 700px) { .detail-grid, .counts { grid-template-columns: 1fr; } }
+@media (max-width: 700px) { .detail-grid { grid-template-columns: 1fr; } }
 
 .error { color: var(--malfunction); }
 
