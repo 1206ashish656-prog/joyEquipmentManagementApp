@@ -130,6 +130,34 @@ async def test_fetch_day_legitimate_spillover_does_not_warn(tmp_path, caplog):
 
 
 @pytest.mark.asyncio
+async def test_fetch_day_dedupes_order_id_seen_in_both_target_days(tmp_path, caplog):
+    """Live production incident (backfilling IST 2026-05-17): the target
+    returned the exact same order_id from both of the two target-side
+    UTC+8 day fetches that make up one IST day, which crashed
+    save_order_payment_records outright on its order_id unique
+    constraint. fetch_day() must dedupe before returning, at the source,
+    so no downstream consumer (compute_daily_groups's aggregation, which
+    would otherwise silently double-count it) ever sees the duplicate."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        target_date = _target_date_queried(request)
+        if target_date == "2026-08-24":
+            rows = [_row("85583", CT_DAY1_MIDDAY)]
+        elif target_date == "2026-08-25":
+            rows = [_row("85583", CT_DAY2_EARLY_SPILLFORWARD)]  # same order_id, also lands on IST 08-24
+        else:
+            rows = []
+        return httpx.Response(200, json={"total": len(rows), "rows": rows})
+
+    client = OrdersClient(_settings(tmp_path))
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    with caplog.at_level("WARNING"):
+        records = await client.fetch_day("2026-08-24")
+
+    assert [r.order_id for r in records] == ["85583"]  # only once, not twice
+    assert "duplicate order_id" in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_fetch_day_paginates_within_each_target_day(tmp_path):
     page1 = [_row(str(i), CT_DAY1_MIDDAY) for i in range(100)]
     page2 = [_row(str(i), CT_DAY1_MIDDAY) for i in range(100, 150)]

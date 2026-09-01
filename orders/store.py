@@ -95,10 +95,20 @@ def save_order_payment_records(session: Session, date: str, records: list[OrderR
         session.delete(row)
     session.flush()
 
+    # Defensive second layer: fetch_day() already dedupes by order_id at
+    # the source (a target day-boundary quirk was observed to return the
+    # same order from both of its two overlapping day fetches), but this
+    # table's own order_id unique constraint means ANY caller passing a
+    # duplicate would otherwise crash the whole insert batch outright —
+    # deduping again here, cheaply, means that can never happen regardless
+    # of what a future caller does.
+    seen_order_ids: set[str] = set()
+
     stored = 0
     for r in records:
-        if not r.order_id:
+        if not r.order_id or r.order_id in seen_order_ids:
             continue
+        seen_order_ids.add(r.order_id)
         session.add(
             OrderPaymentRecord(
                 order_id=r.order_id,

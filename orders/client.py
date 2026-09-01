@@ -87,6 +87,33 @@ class OrdersClient:
             records = await self._fetch_target_utc8_day(target_date)
             all_records.extend(records)
 
+        # The target's own day-boundary RANGE filter has been observed to
+        # return the exact same order in BOTH of the two UTC+8 day fetches
+        # above (seen live during a production backfill: order_id 85583
+        # present in both windows for IST day 2026-05-17) — dedupe by
+        # order_id here, once, at the source, so no downstream consumer
+        # (compute_daily_groups's per-day aggregation, which would silently
+        # double-count it, or save_order_payment_records's per-order table,
+        # which hard-crashes on the duplicate unique order_id) ever sees it
+        # twice.
+        seen_order_ids: set[str] = set()
+        deduped_records: list[OrderRecord] = []
+        duplicate_count = 0
+        for r in all_records:
+            if r.order_id and r.order_id in seen_order_ids:
+                duplicate_count += 1
+                continue
+            if r.order_id:
+                seen_order_ids.add(r.order_id)
+            deduped_records.append(r)
+        if duplicate_count:
+            logger.warning(
+                "%d duplicate order_id(s) returned by the target across its two "
+                "day-boundary fetches for IST day %s — deduped",
+                duplicate_count, ist_date_str,
+            )
+        all_records = deduped_records
+
         matching = [r for r in all_records if r.order_date == ist_date_str]
 
         # Sanity check, not fatal: this is the app-level boundary/timezone

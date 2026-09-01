@@ -141,6 +141,26 @@ def test_resaving_a_date_replaces_payment_records_not_duplicates(db_session):
     assert rows[0].order_money == Decimal("150.00")
 
 
+def test_save_order_payment_records_dedupes_within_one_batch(db_session):
+    """Defensive second layer: fetch_day() already dedupes duplicate
+    order_ids at the source (a live production incident showed the
+    target returning the same order twice across its two day-boundary
+    fetches), but this table's own order_id unique constraint means any
+    caller passing a duplicate within one batch would otherwise crash
+    the whole insert outright — this must never happen regardless of
+    what a future caller does."""
+    records = [
+        _order_record(order_id="85583", order_money="120.00"),
+        _order_record(order_id="85582", order_money="99.00"),
+        _order_record(order_id="85583", order_money="120.00"),  # duplicate, same order_id
+    ]
+    stored = save_order_payment_records(db_session, "2026-05-17", records)
+
+    assert stored == 2
+    remaining_ids = {r.order_id for r in db_session.execute(select(OrderPaymentRecord)).scalars().all()}
+    assert remaining_ids == {"85582", "85583"}
+
+
 def test_save_order_payment_records_scoped_per_date(db_session):
     save_order_payment_records(db_session, "2026-08-22", [_order_record(order_id="1", order_date="2026-08-22")])
     save_order_payment_records(db_session, "2026-08-23", [_order_record(order_id="2", order_date="2026-08-23")])
