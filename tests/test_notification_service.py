@@ -4,6 +4,7 @@ contacted — EmailNotificationChannel's use of smtplib.SMTP is mocked out.
 """
 from __future__ import annotations
 
+import socket
 from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
@@ -83,6 +84,68 @@ def test_email_channel_returns_false_on_smtp_failure_without_raising():
         ok = channel.send(Notification(to=["ops@example.com"], subject="Test", body="Body"))
 
     assert ok is False
+
+
+def test_email_channel_forces_ipv4_only_dns_resolution(monkeypatch):
+    """Regression test for a live production incident (2026-09-02):
+    Railway's containers have no IPv6 egress, but smtp.gmail.com
+    resolves to an IPv6 address first, so smtplib's real connect() got
+    OSError: [Errno 101] Network is unreachable and a Critical alert
+    (equipment gone OFFLINE) silently never reached anyone. The fix
+    forces IPv4-only resolution for just the connection attempt — this
+    simulates smtplib's internal DNS call (which the mocked-out
+    smtplib.SMTP below never actually performs) to verify the forced
+    family, and that the patch is restored afterward rather than left
+    in place process-wide."""
+    seen_families = []
+
+    def fake_getaddrinfo(host, port, family=0, *args, **kwargs):
+        seen_families.append(family)
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.2.3.4", port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+
+    settings = replace(_base_settings(), smtp_host="smtp.gmail.com", smtp_from_email="bot@example.com")
+    channel = EmailNotificationChannel(settings)
+
+    mock_smtp_instance = MagicMock()
+    mock_smtp_ctx = MagicMock()
+    mock_smtp_ctx.__enter__.return_value = mock_smtp_instance
+    mock_smtp_ctx.__exit__.return_value = False
+
+    def smtp_side_effect(host, port, timeout=15):
+        # Simulate what the real smtplib.SMTP.connect() does internally —
+        # call socket.getaddrinfo() — since the class itself is mocked out.
+        socket.getaddrinfo(host, port)
+        return mock_smtp_ctx
+
+    with patch("services.notification_service.smtplib.SMTP", side_effect=smtp_side_effect):
+        from services.notification_service import Notification
+
+        ok = channel.send(Notification(to=["ops@example.com"], subject="Test", body="Body"))
+
+    assert ok is True
+    assert seen_families == [socket.AF_INET]  # forced to IPv4, never left as AF_UNSPEC (0)
+    assert socket.getaddrinfo is fake_getaddrinfo  # restored to what it was before send(), not left patched
+
+
+def test_email_channel_restores_dns_resolution_even_on_failure(monkeypatch):
+    """The IPv4-only patch above must be restored via `finally` even when
+    the send itself fails — otherwise one failed send would leave DNS
+    resolution force-IPv4 for the rest of the process."""
+    monkeypatch.setattr(socket, "getaddrinfo", socket.getaddrinfo)  # a distinct bound reference to compare against
+    before = socket.getaddrinfo
+
+    settings = replace(_base_settings(), smtp_host="smtp.gmail.com", smtp_from_email="bot@example.com")
+    channel = EmailNotificationChannel(settings)
+
+    with patch("services.notification_service.smtplib.SMTP", side_effect=OSError("Network is unreachable")):
+        from services.notification_service import Notification
+
+        ok = channel.send(Notification(to=["ops@example.com"], subject="Test", body="Body"))
+
+    assert ok is False
+    assert socket.getaddrinfo is before
 
 
 def test_password_never_appears_in_logs(caplog):

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import smtplib
+import socket
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from email.message import EmailMessage
@@ -84,7 +85,27 @@ class EmailNotificationChannel(NotificationChannel):
             # most clients show this HTML part instead.
             msg.add_alternative(notification.html_body, subtype="html")
 
+        # Production incident (2026-09-02): Railway's containers have no
+        # IPv6 egress route, but smtp.gmail.com (and most SMTP providers)
+        # resolve to an IPv6 address FIRST — smtplib.SMTP's connect()
+        # tried that address and got a hard OSError: [Errno 101] Network
+        # is unreachable, so a Critical-severity alert (equipment gone
+        # OFFLINE) never actually reached anyone despite recipients being
+        # correctly resolved. Fix: force IPv4-only DNS resolution for
+        # just this one connection attempt, via a narrowly-scoped
+        # socket.getaddrinfo monkeypatch restored in `finally` even on
+        # error — not a process-wide setting, since nothing else in this
+        # single-threaded worker cycle resolves DNS concurrently with
+        # this call. self._host itself is untouched (still the hostname,
+        # not a raw IP), so STARTTLS certificate hostname verification
+        # still checks against the real name.
+        original_getaddrinfo = socket.getaddrinfo
+
+        def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+            return original_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
         try:
+            socket.getaddrinfo = _ipv4_only_getaddrinfo
             with smtplib.SMTP(self._host, self._port, timeout=15) as smtp:
                 if self._use_tls:
                     smtp.starttls()
@@ -100,6 +121,8 @@ class EmailNotificationChannel(NotificationChannel):
             # this safely credential-free (requirement #17).
             logger.exception("Failed to send email (see traceback above; credentials never logged)")
             return False
+        finally:
+            socket.getaddrinfo = original_getaddrinfo
 
 
 class NotificationService:
