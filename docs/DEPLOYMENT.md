@@ -92,7 +92,8 @@ consume as `${{Postgres.DATABASE_URL}}`.
 | `AUTO_SOLVE_CAPTCHA` | `true` | **yes** — the pre-existing, explicitly authorized (2026-08-23) exception for this one target; required since no human is present to solve a CAPTCHA on a headless server |
 | `AUTH_MANUAL_TIMEOUT_SECONDS`, `POLL_INTERVAL_SECONDS`, `POC_ITERATIONS` | same as local `.env` | no |
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (Railway's own reference syntax) | **yes** — not manually typed; leave `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD` unset |
-| `SMTP_HOST`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`SMTP_FROM_EMAIL`/`SMTP_USE_TLS`, `ALERT_ON_ESCALATION`, `SEND_RECOVERY_NOTIFICATIONS` | same as local (leave SMTP_* blank until real credentials exist; set them the same way here whenever ready) | no |
+| `RESEND_API_KEY`, `RESEND_FROM_EMAIL` | from your Resend dashboard (resend.com/api-keys); `RESEND_FROM_EMAIL` must be on a domain verified there | **yes** — set these on Railway; **do not** rely on `SMTP_*` in production — confirmed live (2026-09-06) that Railway blocks all outbound SMTP ports (587/465/25) entirely, so a real alert will silently fail to send without this |
+| `SMTP_HOST`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`SMTP_FROM_EMAIL`/`SMTP_USE_TLS`, `ALERT_ON_ESCALATION`, `SEND_RECOVERY_NOTIFICATIONS` | leave SMTP_* blank here (Resend takes priority when both are set, but don't rely on the fallback) | no — `ALERT_ON_ESCALATION`/`SEND_RECOVERY_NOTIFICATIONS` still apply regardless of which email channel is active |
 | `WEB_SECRET_KEY` | fresh output of `python -c "import secrets; print(secrets.token_hex(32))"` | **yes** — must never match the local dev value |
 
 *If the build fails:* check the build logs for a `requirements.txt` or

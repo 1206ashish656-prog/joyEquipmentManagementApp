@@ -67,6 +67,17 @@ class Settings:
     alert_on_escalation: bool
     send_recovery_notifications: bool
 
+    # Resend (services/notification_service.py's ResendEmailChannel) --
+    # added 2026-09-06 after confirming live in production that Railway's
+    # network blocks ALL outbound SMTP ports (587/465/25) entirely, a
+    # common PaaS anti-spam-relay policy -- raw SMTP (above) silently
+    # failed every alert with a connection timeout. Resend sends over
+    # HTTPS (port 443), which is never blocked. Takes priority over SMTP
+    # whenever configured (see NotificationService.__init__) -- SMTP
+    # stays available for local dev, where it isn't blocked.
+    resend_api_key: str
+    resend_from_email: str
+
     web_secret_key: str
 
     # PayU (reconciliation — services/payu_client.py,
@@ -97,6 +108,10 @@ class Settings:
     @property
     def smtp_configured(self) -> bool:
         return bool(self.smtp_host)
+
+    @property
+    def resend_configured(self) -> bool:
+        return bool(self.resend_api_key and self.resend_from_email)
 
     @property
     def payu_configured(self) -> bool:
@@ -138,6 +153,8 @@ def load_settings() -> Settings:
         smtp_use_tls=_get_bool("SMTP_USE_TLS", True),
         alert_on_escalation=_get_bool("ALERT_ON_ESCALATION", True),
         send_recovery_notifications=_get_bool("SEND_RECOVERY_NOTIFICATIONS", True),
+        resend_api_key=os.getenv("RESEND_API_KEY", "").strip(),
+        resend_from_email=os.getenv("RESEND_FROM_EMAIL", "").strip(),
         web_secret_key=os.getenv("WEB_SECRET_KEY", "").strip(),
         payu_merchant_key=os.getenv("PAYU_MERCHANT_KEY", "").strip(),
         payu_merchant_salt=os.getenv("PAYU_MERCHANT_SALT", "").strip(),

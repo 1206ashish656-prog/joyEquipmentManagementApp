@@ -20,6 +20,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from email.message import EmailMessage
 
+import httpx
+
 from monitoring.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -125,11 +127,67 @@ class EmailNotificationChannel(NotificationChannel):
             socket.getaddrinfo = original_getaddrinfo
 
 
+class ResendEmailChannel(NotificationChannel):
+    """Sends over Resend's HTTPS API (https://resend.com/docs/api-reference/emails/send-email)
+    instead of raw SMTP — added 2026-09-06 after confirming live in
+    production (a real Critical-severity Gravity malfunction alert) that
+    Railway's network blocks ALL outbound SMTP ports (587/465/25)
+    entirely: `timeout 5 bash -c '</dev/tcp/smtp.gmail.com/<port>'` failed
+    for all three from inside the container. This is a common PaaS
+    anti-spam-relay policy, not something fixable by more DNS/socket
+    tweaking (see EmailNotificationChannel's IPv4-only fix above, which
+    fixed a real but different problem and still left this one). HTTPS
+    (port 443) is essentially never blocked, so an HTTP API sidesteps the
+    restriction entirely. Selected over EmailNotificationChannel whenever
+    configured — see NotificationService.__init__."""
+
+    API_URL = "https://api.resend.com/emails"
+
+    def __init__(self, settings: Settings):
+        self._api_key = settings.resend_api_key
+        self._from_email = settings.resend_from_email
+
+    def send(self, notification: Notification) -> bool:
+        if not notification.to:
+            return False
+
+        payload = {
+            "from": self._from_email,
+            "to": notification.to,
+            "subject": notification.subject,
+            "text": notification.body,
+        }
+        if notification.html_body:
+            payload["html"] = notification.html_body
+
+        try:
+            resp = httpx.post(
+                self.API_URL,
+                json=payload,
+                headers={"Authorization": f"Bearer {self._api_key}"},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            logger.info("Email sent via Resend to %s: %s", ", ".join(notification.to), notification.subject)
+            return True
+        except Exception:
+            # Same credential-safety rule as EmailNotificationChannel
+            # (requirement #17) — never log the response body or str(e)
+            # unchecked, since an API error response could echo request
+            # details back; the exception TYPE is enough to diagnose from.
+            logger.exception("Failed to send email via Resend (see traceback above; API key never logged)")
+            return False
+
+
 class NotificationService:
     def __init__(self, settings: Settings):
-        self._channel: NotificationChannel = (
-            EmailNotificationChannel(settings) if settings.smtp_configured else ConsoleNotificationChannel()
-        )
+        self._channel: NotificationChannel
+        if settings.resend_configured:
+            self._channel = ResendEmailChannel(settings)
+        elif settings.smtp_configured:
+            self._channel = EmailNotificationChannel(settings)
+        else:
+            self._channel = ConsoleNotificationChannel()
 
     def send_email(self, to: list[str], subject: str, body: str, html_body: str | None = None) -> bool:
         if not to:

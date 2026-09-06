@@ -8,11 +8,15 @@ import socket
 from dataclasses import replace
 from unittest.mock import MagicMock, patch
 
+import httpx
+
 from monitoring.config import load_settings
 from services.notification_service import (
     ConsoleNotificationChannel,
     EmailNotificationChannel,
+    Notification,
     NotificationService,
+    ResendEmailChannel,
 )
 
 
@@ -224,3 +228,93 @@ def test_email_channel_without_html_body_is_not_multipart():
 
     sent_msg = mock_smtp_instance.send_message.call_args[0][0]
     assert sent_msg.is_multipart() is False
+
+
+def _resend_settings(**overrides):
+    defaults = {"resend_api_key": "re_test_key", "resend_from_email": "alerts@example.com"}
+    defaults.update(overrides)
+    return replace(_base_settings(), **defaults)
+
+
+def test_resend_channel_selected_over_smtp_when_both_configured():
+    """Production incident (2026-09-06): confirmed live that Railway
+    blocks all outbound SMTP ports entirely, so Resend (HTTPS) must win
+    whenever both are configured — SMTP staying configured too (e.g. a
+    leftover local .env copied into production) must never silently win
+    back over the channel that actually works there."""
+    settings = replace(_resend_settings(), smtp_host="smtp.example.com", smtp_from_email="bot@example.com")
+    service = NotificationService(settings)
+    assert isinstance(service._channel, ResendEmailChannel)
+
+
+def test_smtp_channel_selected_when_resend_not_configured():
+    """No regression: local dev (no RESEND_API_KEY) keeps using SMTP
+    exactly as before."""
+    settings = replace(_base_settings(), smtp_host="smtp.example.com", smtp_from_email="bot@example.com")
+    service = NotificationService(settings)
+    assert isinstance(service._channel, EmailNotificationChannel)
+
+
+def test_resend_channel_sends_via_https_post():
+    channel = ResendEmailChannel(_resend_settings())
+
+    mock_response = MagicMock()
+    mock_response.raise_for_status.return_value = None
+
+    with patch("services.notification_service.httpx.post", return_value=mock_response) as mock_post:
+        ok = channel.send(Notification(to=["ops@example.com"], subject="Test", body="Body text"))
+
+    assert ok is True
+    args, kwargs = mock_post.call_args
+    assert args[0] == "https://api.resend.com/emails"
+    assert kwargs["json"]["from"] == "alerts@example.com"
+    assert kwargs["json"]["to"] == ["ops@example.com"]
+    assert kwargs["json"]["subject"] == "Test"
+    assert kwargs["json"]["text"] == "Body text"
+    assert "html" not in kwargs["json"]
+    assert kwargs["headers"]["Authorization"] == "Bearer re_test_key"
+
+
+def test_resend_channel_includes_html_body_when_given():
+    channel = ResendEmailChannel(_resend_settings())
+    mock_response = MagicMock()
+    mock_response.raise_for_status.return_value = None
+
+    with patch("services.notification_service.httpx.post", return_value=mock_response) as mock_post:
+        channel.send(Notification(to=["ops@example.com"], subject="Test", body="Body text", html_body="<b>hi</b>"))
+
+    assert mock_post.call_args.kwargs["json"]["html"] == "<b>hi</b>"
+
+
+def test_resend_channel_returns_false_on_http_error_without_raising():
+    channel = ResendEmailChannel(_resend_settings())
+
+    with patch("services.notification_service.httpx.post", side_effect=httpx.ConnectTimeout("timed out")):
+        ok = channel.send(Notification(to=["ops@example.com"], subject="Test", body="Body"))
+
+    assert ok is False
+
+
+def test_resend_channel_returns_false_on_4xx_response():
+    channel = ResendEmailChannel(_resend_settings())
+    mock_response = MagicMock()
+    mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "bad request", request=MagicMock(), response=MagicMock(status_code=422)
+    )
+
+    with patch("services.notification_service.httpx.post", return_value=mock_response):
+        ok = channel.send(Notification(to=["ops@example.com"], subject="Test", body="Body"))
+
+    assert ok is False
+
+
+def test_resend_api_key_never_appears_in_logs(caplog):
+    """Requirement #17: the API key must never appear in logs, same rule
+    already enforced for SMTP passwords."""
+    channel = ResendEmailChannel(_resend_settings(resend_api_key="re_super_secret_key_xyz"))
+
+    with patch("services.notification_service.httpx.post", side_effect=httpx.ConnectTimeout("timed out")):
+        with caplog.at_level("ERROR"):
+            channel.send(Notification(to=["ops@example.com"], subject="Test", body="Body"))
+
+    assert "re_super_secret_key_xyz" not in caplog.text

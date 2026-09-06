@@ -814,6 +814,26 @@ appears after `smtplib` completes a real connect/login/send, not the
 system was fully built and wired from Phase 4 onward; this closed the
 one remaining real gap.
 
+**Update 2026-09-06: SMTP doesn't work in production — switched to
+Resend's HTTPS API.** A real Critical-severity malfunction alert
+(Gravity) silently failed to send on Railway. Diagnosed live, in order:
+recipients resolved correctly (ruling out a recipient-logic bug); an
+IPv4-only DNS fix (`EmailNotificationChannel` was resolving
+`smtp.gmail.com`'s IPv6 address first, which Railway's containers can't
+route — that fix is still correct and stays in place) resolved one real
+bug, but the send still failed with a connection timeout; a direct port
+test from inside the `combined-worker` container
+(`timeout 5 bash -c '</dev/tcp/smtp.gmail.com/<port>'` for 587, 465,
+and 25) confirmed Railway blocks outbound SMTP entirely — a common
+PaaS anti-spam-relay policy, not fixable at the application layer.
+`services/notification_service.py` gained `ResendEmailChannel`, which
+sends over HTTPS (never blocked) instead of raw SMTP — it's selected
+automatically whenever `RESEND_API_KEY`+`RESEND_FROM_EMAIL` are set,
+taking priority over SMTP (see `NotificationService.__init__`). Local
+dev is unaffected — SMTP isn't blocked on a home/office network, so it
+keeps working exactly as before when Resend isn't configured. See
+`.env.example` for the two new variables.
+
 ## Critical Faults Digest (`services/fault_digest.py`)
 
 A second, distinct kind of email from the per-incident instant alerts

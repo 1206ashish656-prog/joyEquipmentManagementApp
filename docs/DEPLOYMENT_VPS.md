@@ -206,7 +206,8 @@ already excludes `.env`/`.env.*` except `.env.example`).
 | `DB_PORT` | `5432` | no |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD` | choose real values, not the `equipment_monitor`/`equipment_monitor` dev defaults | **yes** — dev defaults are fine for a laptop-only Postgres nothing else can reach; on a VPS, even loopback-only, use a real generated password |
 | `DATABASE_URL` | leave **unset** | — unlike Railway (which sets this to `${{Postgres.DATABASE_URL}}`), here the discrete `DB_*` fields are used directly; `monitoring/config.py`'s `Settings.database_url` property only overrides with `DATABASE_URL` if it's non-empty, so leaving it blank correctly falls through to `DB_*` |
-| `SMTP_HOST`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`SMTP_FROM_EMAIL`/`SMTP_USE_TLS`, `ALERT_ON_ESCALATION`, `SEND_RECOVERY_NOTIFICATIONS` | same as local | no |
+| `RESEND_API_KEY`, `RESEND_FROM_EMAIL` | from your Resend dashboard (resend.com/api-keys); `RESEND_FROM_EMAIL` must be on a domain verified there | recommended — confirmed live (2026-09-06) that Railway blocks outbound SMTP entirely; a self-managed VPS you control may not have that restriction (worth testing with the same `timeout 5 bash -c '</dev/tcp/smtp.gmail.com/587'` check from `docs/DEPLOYMENT.md`'s troubleshooting before assuming either way), but Resend works regardless and keeps both deployment paths on the same code path |
+| `SMTP_HOST`/`SMTP_PORT`/`SMTP_USERNAME`/`SMTP_PASSWORD`/`SMTP_FROM_EMAIL`/`SMTP_USE_TLS`, `ALERT_ON_ESCALATION`, `SEND_RECOVERY_NOTIFICATIONS` | same as local (Resend takes priority when both are set) | no |
 | `WEB_SECRET_KEY` | fresh output of `python3 -c "import secrets; print(secrets.token_hex(32))"` (run on the VPS itself, or any machine with Python 3) | **yes** — must never match the local dev value, or the Railway deployment's value if both ever run at once |
 
 ### Step 6 — `docker-compose.prod.yml`

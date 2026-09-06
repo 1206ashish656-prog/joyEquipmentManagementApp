@@ -9,6 +9,22 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Alert emails switched from SMTP to Resend's HTTPS API** (2026-09-06),
+after a real Critical-severity malfunction alert (Gravity) silently
+failed to send in production. Diagnosed live, in order: recipients were
+resolving correctly, an IPv4-DNS fix (still kept, still correct)
+resolved one real bug but the send still failed, and a direct port
+test from inside the container (`timeout 5 bash -c
+'</dev/tcp/smtp.gmail.com/<port>'`) confirmed Railway blocks outbound
+SMTP entirely — ports 587, 465, and 25 all blocked, a common PaaS
+anti-spam-relay policy with no code-level fix. New
+`services/notification_service.py::ResendEmailChannel` sends over
+HTTPS instead, which isn't blocked; it's selected automatically
+whenever `RESEND_API_KEY`+`RESEND_FROM_EMAIL` are set, taking priority
+over SMTP — local dev keeps working unchanged via SMTP, since outbound
+SMTP isn't blocked on a home/office network. See `.env.example` for
+setup.
+
 **PayU reconciliation** (2026-08-30, admin-only, `/reconciliation`),
 per explicit request. Matches each machine-recorded UPI order against
 PayU's own transaction records via `out_trade_no` <-> `txnid` (confirmed
