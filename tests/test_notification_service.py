@@ -21,7 +21,14 @@ from services.notification_service import (
 
 
 def _base_settings():
-    return load_settings()
+    # Force-clear both alerting channels' credentials rather than trusting
+    # load_settings() to come back empty -- it reads the real local .env,
+    # and this file's tests need a deterministic "nothing configured"
+    # baseline regardless of what real credentials a developer's machine
+    # happens to have on disk (a real RESEND_API_KEY in .env once made
+    # this exact class of test start firing actual HTTPS requests to
+    # Resend instead of hitting the console fallback it expected).
+    return replace(load_settings(), smtp_host="", resend_api_key="", resend_from_email="")
 
 
 def test_console_channel_used_when_smtp_not_configured(caplog):

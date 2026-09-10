@@ -80,6 +80,12 @@ def test_add_with_notify_sends_real_email_on_new_incident(monkeypatch):
     monkeypatch.setenv("SMTP_USERNAME", "user@example.com")
     monkeypatch.setenv("SMTP_PASSWORD", "secret")
     monkeypatch.setenv("SMTP_FROM_EMAIL", "alerts@example.com")
+    # Force SMTP, not a real Resend call -- RESEND_API_KEY in the real
+    # local .env (loaded once at process start via load_dotenv) would
+    # otherwise persist in os.environ and make load_settings() pick the
+    # real (network-calling) Resend channel regardless of SMTP_* above.
+    monkeypatch.setenv("RESEND_API_KEY", "")
+    monkeypatch.setenv("RESEND_FROM_EMAIL", "")
 
     db_base.init_engine()
     db_base.create_all()

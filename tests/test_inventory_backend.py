@@ -34,9 +34,15 @@ def client(monkeypatch):
     monkeypatch.setattr(db_base, "_engine", engine)
     monkeypatch.setattr(db_base, "_SessionLocal", SessionLocal)
 
-    # Force console-fallback email (no real SMTP) unless a specific test
-    # overrides this itself.
-    monkeypatch.setattr(backend_deps, "load_settings", lambda: replace(load_settings(), smtp_host=""))
+    # Force console-fallback email (no real SMTP/Resend) unless a specific
+    # test overrides this itself -- clearing both channels' credentials,
+    # not just SMTP's, since a real RESEND_API_KEY in the developer's
+    # local .env would otherwise make NotificationService pick the real
+    # (network-calling) Resend channel regardless of smtp_host here.
+    monkeypatch.setattr(
+        backend_deps, "load_settings",
+        lambda: replace(load_settings(), smtp_host="", resend_api_key="", resend_from_email=""),
+    )
 
     test_client = TestClient(app)
     yield test_client, SessionLocal
@@ -263,6 +269,7 @@ def test_crossing_threshold_sends_exactly_one_email_across_two_requests(client):
         with patch.object(backend_deps, "load_settings", lambda: replace(
             load_settings(), smtp_host="smtp.example.com", smtp_username="bot@example.com",
             smtp_password="secret", smtp_from_email="bot@example.com",
+            resend_api_key="", resend_from_email="",  # force SMTP, not a real Resend call
         )):
             # First request: 10 -> 6, still above threshold (5) -- no email.
             test_client.post("/inventory/log-usage", data={"item_id": item_id, "date": "2026-08-26", "quantity_used": 4}, follow_redirects=False)
