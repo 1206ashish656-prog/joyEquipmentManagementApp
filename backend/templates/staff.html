@@ -109,7 +109,7 @@
   <section>
     <h2>Log a Leave</h2>
     {% if active_staff %}
-    <form method="post" action="/staff/leaves" class="stacked-form">
+    <form method="post" action="/staff/leaves" class="stacked-form" id="log-leave-form">
       <label>Staff
         <select name="staff_id">
           {% for s in active_staff %}
@@ -118,10 +118,27 @@
         </select>
       </label>
       <label>Start date<input type="date" name="start_date" value="{{ today }}" required></label>
-      <label>End date<input type="date" name="end_date" value="{{ today }}" required></label>
+      <label class="log-leave-end-date">End date<input type="date" name="end_date" value="{{ today }}" required></label>
+      <label class="checkbox-label"><input type="checkbox" name="is_half_day" value="1" class="log-leave-half-day"> Half day</label>
       <label>Reason (optional)<input type="text" name="reason"></label>
       <button type="submit">Log Leave</button>
     </form>
+    <script>
+      (function () {
+        var form = document.getElementById("log-leave-form");
+        var halfDay = form.querySelector(".log-leave-half-day");
+        var endDateField = form.querySelector(".log-leave-end-date");
+        var startDateInput = form.querySelector('input[name="start_date"]');
+        var endDateInput = form.querySelector('input[name="end_date"]');
+        function sync() {
+          endDateField.hidden = halfDay.checked;
+          if (halfDay.checked) endDateInput.value = startDateInput.value;
+        }
+        halfDay.addEventListener("change", sync);
+        startDateInput.addEventListener("change", sync);
+        sync();
+      })();
+    </script>
     {% else %}
     <p class="callout">Add an active staff member first before logging a leave.</p>
     {% endif %}
@@ -152,17 +169,24 @@
 <section>
   <h2>Recent Leaves</h2>
   <table class="equipment-table">
-    <thead><tr><th>Staff</th><th>Start</th><th>End</th><th>Reason</th></tr></thead>
+    <thead><tr><th>Staff</th><th>Start</th><th>End</th><th>Half Day</th><th>Reason</th><th></th><th></th></tr></thead>
     <tbody>
       {% for leave, s in recent_leaves %}
       <tr>
         <td>{{ s.name }}</td>
         <td>{{ leave.start_date }}</td>
         <td>{{ leave.end_date }}</td>
+        <td>{{ "Yes" if leave.is_half_day else "—" }}</td>
         <td>{{ leave.reason or "—" }}</td>
+        <td><a href="/staff/leaves/{{ leave.id }}/edit">Edit</a></td>
+        <td>
+          <form method="post" action="/staff/leaves/{{ leave.id }}/delete" style="display:inline;" onsubmit="return confirm('Delete this leave record for {{ s.name }}?');">
+            <button type="submit" class="linklike">Delete</button>
+          </form>
+        </td>
       </tr>
       {% else %}
-      <tr><td colspan="4">No leaves logged yet.</td></tr>
+      <tr><td colspan="7">No leaves logged yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

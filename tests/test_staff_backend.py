@@ -298,6 +298,187 @@ def test_leave_summary_does_not_highlight_short_leave(client):
     assert "Exceeds 2 days" not in resp.text
 
 
+def test_log_half_day_leave_forces_end_date_equal_start(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.post(
+        "/staff/leaves",
+        data={"staff_id": staff_id, "start_date": "2026-08-10", "end_date": "2026-08-15", "is_half_day": "1"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    with SessionLocal() as session:
+        leave = session.execute(select(StaffLeave)).scalar_one()
+        assert leave.is_half_day is True
+        assert leave.start_date == "2026-08-10"
+        assert leave.end_date == "2026-08-10"  # forced equal to start, ignoring the submitted end_date
+
+
+def test_half_day_leave_counts_as_half_in_summary(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    _login(test_client, "admin@example.com")
+
+    test_client.post("/staff/leaves", data={"staff_id": staff_id, "start_date": "2026-08-10", "end_date": "2026-08-10", "is_half_day": "1"})
+
+    resp = test_client.get("/staff?year=2026&month=8")
+    assert resp.status_code == 200
+    assert "0.5" in resp.text
+    assert "Exceeds 2 days" not in resp.text
+
+
+def test_edit_leave_form_prefilled(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    _login(test_client, "admin@example.com")
+    test_client.post("/staff/leaves", data={"staff_id": staff_id, "start_date": "2026-08-10", "end_date": "2026-08-13", "reason": "Family event"})
+    with SessionLocal() as session:
+        leave_id = session.execute(select(StaffLeave)).scalar_one().id
+
+    resp = test_client.get(f"/staff/leaves/{leave_id}/edit")
+    assert resp.status_code == 200
+    assert "2026-08-10" in resp.text
+    assert "2026-08-13" in resp.text
+    assert "Family event" in resp.text
+
+
+def test_update_leave_changes_dates_and_reason(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    _login(test_client, "admin@example.com")
+    test_client.post("/staff/leaves", data={"staff_id": staff_id, "start_date": "2026-08-10", "end_date": "2026-08-13"})
+    with SessionLocal() as session:
+        leave_id = session.execute(select(StaffLeave)).scalar_one().id
+
+    resp = test_client.post(
+        f"/staff/leaves/{leave_id}/edit",
+        data={"staff_id": staff_id, "start_date": "2026-08-11", "end_date": "2026-08-14", "reason": "Corrected"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    with SessionLocal() as session:
+        leave = session.get(StaffLeave, leave_id)
+        assert leave.start_date == "2026-08-11"
+        assert leave.end_date == "2026-08-14"
+        assert leave.reason == "Corrected"
+
+
+def test_update_leave_can_reassign_to_different_staff(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_a = _add_staff(SessionLocal, "Priya")
+    staff_b = _add_staff(SessionLocal, "Rahul")
+    _login(test_client, "admin@example.com")
+    test_client.post("/staff/leaves", data={"staff_id": staff_a, "start_date": "2026-08-10", "end_date": "2026-08-10"})
+    with SessionLocal() as session:
+        leave_id = session.execute(select(StaffLeave)).scalar_one().id
+
+    test_client.post(f"/staff/leaves/{leave_id}/edit", data={"staff_id": staff_b, "start_date": "2026-08-10", "end_date": "2026-08-10"})
+    with SessionLocal() as session:
+        assert session.get(StaffLeave, leave_id).staff_id == staff_b
+
+
+def test_update_leave_to_half_day_forces_end_date_equal_start(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    _login(test_client, "admin@example.com")
+    test_client.post("/staff/leaves", data={"staff_id": staff_id, "start_date": "2026-08-10", "end_date": "2026-08-13"})
+    with SessionLocal() as session:
+        leave_id = session.execute(select(StaffLeave)).scalar_one().id
+
+    test_client.post(
+        f"/staff/leaves/{leave_id}/edit",
+        data={"staff_id": staff_id, "start_date": "2026-08-10", "end_date": "2026-08-13", "is_half_day": "1"},
+    )
+    with SessionLocal() as session:
+        leave = session.get(StaffLeave, leave_id)
+        assert leave.is_half_day is True
+        assert leave.end_date == "2026-08-10"
+
+
+def test_edit_nonexistent_leave_redirects_without_error(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.post(
+        "/staff/leaves/9999/edit",
+        data={"staff_id": 1, "start_date": "2026-08-10", "end_date": "2026-08-10"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+
+def test_delete_leave_removes_it(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    _login(test_client, "admin@example.com")
+    test_client.post("/staff/leaves", data={"staff_id": staff_id, "start_date": "2026-08-10", "end_date": "2026-08-10"})
+    with SessionLocal() as session:
+        leave_id = session.execute(select(StaffLeave)).scalar_one().id
+
+    resp = test_client.post(f"/staff/leaves/{leave_id}/delete", follow_redirects=False)
+    assert resp.status_code == 303
+    with SessionLocal() as session:
+        assert session.get(StaffLeave, leave_id) is None
+
+
+def test_delete_nonexistent_leave_is_a_no_op_not_an_error(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.post("/staff/leaves/9999/delete", follow_redirects=False)
+    assert resp.status_code == 303
+
+
+def test_operations_cannot_edit_leave(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_user(SessionLocal, "ops@example.com", "operations")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    _login(test_client, "admin@example.com")
+    test_client.post("/staff/leaves", data={"staff_id": staff_id, "start_date": "2026-08-10", "end_date": "2026-08-10"})
+    with SessionLocal() as session:
+        leave_id = session.execute(select(StaffLeave)).scalar_one().id
+    test_client.post("/logout")
+
+    _login(test_client, "ops@example.com")
+    resp = test_client.post(
+        f"/staff/leaves/{leave_id}/edit",
+        data={"staff_id": staff_id, "start_date": "2026-09-01", "end_date": "2026-09-01"},
+    )
+    assert resp.status_code == 403
+    with SessionLocal() as session:
+        assert session.get(StaffLeave, leave_id).start_date == "2026-08-10"
+
+
+def test_operations_cannot_delete_leave(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_user(SessionLocal, "ops@example.com", "operations")
+    staff_id = _add_staff(SessionLocal, "Priya")
+    _login(test_client, "admin@example.com")
+    test_client.post("/staff/leaves", data={"staff_id": staff_id, "start_date": "2026-08-10", "end_date": "2026-08-10"})
+    with SessionLocal() as session:
+        leave_id = session.execute(select(StaffLeave)).scalar_one().id
+    test_client.post("/logout")
+
+    _login(test_client, "ops@example.com")
+    resp = test_client.post(f"/staff/leaves/{leave_id}/delete")
+    assert resp.status_code == 403
+    with SessionLocal() as session:
+        assert session.get(StaffLeave, leave_id) is not None
+
+
 # --- Department / sub-department mapping ---
 
 def test_create_staff_with_department_and_sub_department(client):

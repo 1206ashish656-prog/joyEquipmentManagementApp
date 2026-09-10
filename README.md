@@ -522,6 +522,30 @@ mistaken "Mark as left" — a cleared end date makes the staff member
 active again, and the "Mark as left" action reappears for them on the
 roster (same `not employment_end_date` check that already drove it).
 
+**Editable/deletable leaves + half-day leave (2026-09-10)** — every row
+in the Recent Leaves table now has its own **Edit** (`/staff/leaves/
+{id}/edit`, can reassign staff/dates/reason and toggle half-day) and
+**Delete** link, matching the roster's own edit/delete pattern, so a
+mis-logged leave no longer has to stay wrong forever. `StaffLeave`
+gained `is_half_day` — a half-day leave is always a single day
+(`start_date == end_date`, enforced server-side regardless of what a
+form submits) counted as **0.5 days** rather than 1 in
+`staff/leave_summary.py`'s month totals, so e.g. two ordinary leave
+days plus one half-day correctly reads 2.5 (and correctly still trips
+the ">2 days" highlight). The "Log a Leave" and "Edit Leave" forms
+hide the End date field via a small inline script when "Half day" is
+checked (mirroring Inventory's cartons/pieces toggle), syncing it to
+the start date automatically rather than leaving a stale value the
+backend then has to override silently.
+
+Migration note for an **existing** deployment (same "no Alembic"
+situation as above): `is_half_day` is a new column on the existing
+live `staff_leave` table —
+```sql
+ALTER TABLE staff_leave ADD COLUMN is_half_day BOOLEAN NOT NULL DEFAULT FALSE;
+```
+A fresh install gets this for free via `create_all()`.
+
 **Recurring Costs (2026-08-30)** — Cost Management gained a "Recurring
 Costs" section (`services/recurring_costs.py`) that derives what's due
 for a chosen month directly from two live lists rather than an admin

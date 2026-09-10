@@ -589,6 +589,11 @@ class StaffLeave(Base):
     staff_id: Mapped[int] = mapped_column(ForeignKey("staff.id"), index=True)
     start_date: Mapped[str] = mapped_column(String(10))  # 'YYYY-MM-DD'
     end_date: Mapped[str] = mapped_column(String(10))  # 'YYYY-MM-DD', inclusive, >= start_date
+    # A half-day leave is always a single day (start_date == end_date,
+    # enforced in backend/api/staff.py, not here) counted as 0.5 days
+    # instead of 1 in staff/leave_summary.py — there's no concept of a
+    # half-day *range*, only a half-day on one specific date.
+    is_half_day: Mapped[bool] = mapped_column(Boolean, default=False)
     reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)

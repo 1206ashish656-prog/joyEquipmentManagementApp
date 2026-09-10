@@ -9,6 +9,16 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Editable/deletable staff leaves + half-day leave** (2026-09-10), per
+explicit request. Every Recent Leaves row gained Edit/Delete links
+(`/staff/leaves/{id}/edit`, `/staff/leaves/{id}/delete`), matching the
+roster's existing pattern. New `StaffLeave.is_half_day` column — a
+half-day leave is always a single day, counted as 0.5 days in
+`staff/leave_summary.py`'s month totals instead of 1. Needs
+`ALTER TABLE staff_leave ADD COLUMN is_half_day BOOLEAN NOT NULL DEFAULT FALSE;`
+on an existing deployment — see README's "Staff & Leave Management"
+section.
+
 **Alert emails switched from SMTP to Resend's HTTPS API** (2026-09-06),
 after a real Critical-severity malfunction alert (Gravity) silently
 failed to send in production. Diagnosed live, in order: recipients were

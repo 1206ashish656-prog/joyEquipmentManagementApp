@@ -230,13 +230,19 @@ def add_leave(
     staff_id: int = Form(...),
     start_date: str = Form(...),
     end_date: str = Form(...),
+    is_half_day: str = Form(""),
     reason: str = Form(""),
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
+    half_day = bool(is_half_day)
+    if half_day:
+        # A half-day leave is always a single day -- the end date, if the
+        # form somehow submitted a different one, is not meaningful here.
+        end_date = start_date
     # Never store an inverted range -- swap rather than reject, since a
     # typo'd order shouldn't lose the admin's input.
-    if end_date < start_date:
+    elif end_date < start_date:
         start_date, end_date = end_date, start_date
 
     db.add(
@@ -244,10 +250,71 @@ def add_leave(
             staff_id=staff_id,
             start_date=start_date,
             end_date=end_date,
+            is_half_day=half_day,
             reason=reason.strip() or None,
             created_by_user_id=admin.id,
         )
     )
+    return RedirectResponse(url="/staff", status_code=303)
+
+
+@router.get("/staff/leaves/{leave_id}/edit", response_class=HTMLResponse)
+def edit_leave_form(
+    leave_id: int,
+    request: Request,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    leave = db.get(StaffLeave, leave_id)
+    if leave is None:
+        return templates.TemplateResponse(request, "not_found.html", {"user": admin}, status_code=404)
+
+    staff_list = db.execute(select(Staff).order_by(Staff.name)).scalars().all()
+    return templates.TemplateResponse(
+        request,
+        "staff_leave_edit.html",
+        {"user": admin, "leave": leave, "staff_list": staff_list},
+    )
+
+
+@router.post("/staff/leaves/{leave_id}/edit")
+def update_leave(
+    leave_id: int,
+    staff_id: int = Form(...),
+    start_date: str = Form(...),
+    end_date: str = Form(...),
+    is_half_day: str = Form(""),
+    reason: str = Form(""),
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    leave = db.get(StaffLeave, leave_id)
+    if leave is None:
+        return RedirectResponse(url="/staff", status_code=303)
+
+    half_day = bool(is_half_day)
+    if half_day:
+        end_date = start_date
+    elif end_date < start_date:
+        start_date, end_date = end_date, start_date
+
+    leave.staff_id = staff_id
+    leave.start_date = start_date
+    leave.end_date = end_date
+    leave.is_half_day = half_day
+    leave.reason = reason.strip() or None
+    return RedirectResponse(url="/staff", status_code=303)
+
+
+@router.post("/staff/leaves/{leave_id}/delete")
+def delete_leave(
+    leave_id: int,
+    admin: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    leave = db.get(StaffLeave, leave_id)
+    if leave is not None:
+        db.delete(leave)
     return RedirectResponse(url="/staff", status_code=303)
 
 

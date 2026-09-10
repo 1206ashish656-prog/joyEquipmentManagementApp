@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Edit Leave — Equipment Monitor{% endblock %}
+{% block content %}
+<h1>Edit Leave</h1>
+
+<section class="status-panel">
+  <form method="post" action="/staff/leaves/{{ leave.id }}/edit" class="stacked-form" style="margin: 0;" id="edit-leave-form">
+    <label>Staff
+      <select name="staff_id">
+        {% for s in staff_list %}
+        <option value="{{ s.id }}" {% if s.id == leave.staff_id %}selected{% endif %}>{{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Start date<input type="date" name="start_date" value="{{ leave.start_date }}" required></label>
+    <label class="edit-leave-end-date">End date<input type="date" name="end_date" value="{{ leave.end_date }}" required></label>
+    <label class="checkbox-label"><input type="checkbox" name="is_half_day" value="1" class="edit-leave-half-day" {% if leave.is_half_day %}checked{% endif %}> Half day</label>
+    <label>Reason (optional)<input type="text" name="reason" value="{{ leave.reason or '' }}"></label>
+    <button type="submit">Save Changes</button>
+  </form>
+  <script>
+    (function () {
+      var form = document.getElementById("edit-leave-form");
+      var halfDay = form.querySelector(".edit-leave-half-day");
+      var endDateField = form.querySelector(".edit-leave-end-date");
+      var startDateInput = form.querySelector('input[name="start_date"]');
+      var endDateInput = form.querySelector('input[name="end_date"]');
+      function sync() {
+        endDateField.hidden = halfDay.checked;
+        if (halfDay.checked) endDateInput.value = startDateInput.value;
+      }
+      halfDay.addEventListener("change", sync);
+      startDateInput.addEventListener("change", sync);
+      sync();
+    })();
+  </script>
+  <p style="margin-top:14px;"><a href="/staff">← Back to Staff & Leave Management</a></p>
+</section>
+{% endblock %}
