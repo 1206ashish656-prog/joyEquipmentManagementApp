@@ -47,12 +47,18 @@
 </section>
 
 {% if overall_row %}
-<section class="counts" style="grid-template-columns: repeat({{ 6 if user.role == 'admin' else 4 }}, 1fr);">
-  <div class="count-tile"><div class="n">{{ overall_row.number_of_orders }}</div><div class="label">Total Orders</div></div>
+{# Per explicit request: vendors (venue_partner) see ONLY glasses sold —
+   no price/oranges/juice-weight/revenue detail at all, not just revenue
+   and oranges/glass (which were already admin-only). "Glasses sold" is
+   number_of_orders itself — this vending-machine business dispenses
+   exactly one cup per qualifying order, there's no separate multi-glass
+   order concept anywhere in the data. #}
+<section class="counts" style="grid-template-columns: repeat({{ 6 if user.role == 'admin' else 1 }}, 1fr);">
+  <div class="count-tile"><div class="n">{{ overall_row.number_of_orders }}</div><div class="label">{% if user.role == "admin" %}Total Orders{% else %}Glasses Sold{% endif %}</div></div>
+  {% if user.role == "admin" %}
   <div class="count-tile"><div class="n">₹{{ "%.2f"|format(overall_row.average_price) }}</div><div class="label">Avg Price</div></div>
   <div class="count-tile"><div class="n">{{ overall_row.total_number_of_oranges }}</div><div class="label">Total Oranges</div></div>
   <div class="count-tile"><div class="n">{{ "%.2f"|format(overall_row.average_juice_weight) }}</div><div class="label">Avg Juice Weight</div></div>
-  {% if user.role == "admin" %}
   <div class="count-tile"><div class="n">₹{{ "%.2f"|format(overall_row.revenue) }}</div><div class="label">Revenue</div></div>
   <div class="count-tile"><div class="n">{{ "%.2f"|format(overall_row.oranges_per_glass) }}</div><div class="label">Oranges/Glass</div></div>
   {% endif %}
@@ -79,8 +85,8 @@
         {% if by_machine %}<th>Machine</th>{% endif %}
         {% if by_price %}<th>Price</th>{% endif %}
         {% if by_pay_type %}<th>Pay Type</th>{% endif %}
-        <th>Orders</th><th>Avg Price</th><th>Total Oranges</th><th>Avg Juice Weight</th>
-        {% if user.role == "admin" %}<th>Revenue</th><th>Oranges/Glass</th>{% endif %}
+        <th>{% if user.role == "admin" %}Orders{% else %}Glasses Sold{% endif %}</th>
+        {% if user.role == "admin" %}<th>Avg Price</th><th>Total Oranges</th><th>Avg Juice Weight</th><th>Revenue</th><th>Oranges/Glass</th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -90,16 +96,16 @@
         {% if by_price %}<td>{{ "%.2f"|format(row.key.price) }}</td>{% endif %}
         {% if by_pay_type %}<td>{{ row.key.pay_type }}</td>{% endif %}
         <td>{{ row.number_of_orders }}</td>
+        {% if user.role == "admin" %}
         <td>{{ "%.2f"|format(row.average_price) }}</td>
         <td>{{ row.total_number_of_oranges }}</td>
         <td>{{ "%.2f"|format(row.average_juice_weight) }}</td>
-        {% if user.role == "admin" %}
         <td>₹{{ "%.2f"|format(row.revenue) }}</td>
         <td>{{ "%.2f"|format(row.oranges_per_glass) }}</td>
         {% endif %}
       </tr>
       {% else %}
-      <tr><td colspan="{{ 9 if user.role == 'admin' else 7 }}">No qualifying orders in this period.</td></tr>
+      <tr><td colspan="{{ 9 if user.role == 'admin' else 4 }}">No qualifying orders in this period.</td></tr>
       {% endfor %}
     </tbody>
   </table>

@@ -326,3 +326,45 @@ def test_admin_chart_json_includes_revenue(client):
     resp = test_client.get("/orders/summary?period=daily&as_of=2026-08-23")
     assert resp.status_code == 200
     assert '"revenue"' in resp.text
+
+
+def test_venue_partner_sees_only_glasses_sold(client):
+    """Per explicit request: vendors see ONLY the glasses-sold count —
+    no Avg Price/Total Oranges/Avg Juice Weight either, not just the
+    already-admin-only Revenue/Oranges-per-Glass."""
+    test_client, SessionLocal = client
+    with SessionLocal() as session:
+        from db.models import VenueMapping
+        session.add(VenueMapping(machine_name="NEXUS", venue_provider="Forum Kormangala"))
+        session.add(User(
+            name="Venue", email="venue@example.com", role="venue_partner", venue_provider="Forum Kormangala",
+            active=True, password_hash=hash_password("pw123456"),
+        ))
+        session.commit()
+    _seed_order_summary(SessionLocal, "2026-08-23", "NEXUS", "120.00", "UPI", n=10, oranges=25)
+    _login(test_client, "venue@example.com", "pw123456")
+
+    resp = test_client.get("/orders/summary?period=daily&as_of=2026-08-23")
+    assert resp.status_code == 200
+    assert "Glasses Sold" in resp.text
+    assert "10" in resp.text  # the glasses-sold count itself still shows
+    for hidden in ("Avg Price", "Total Oranges", "Avg Juice Weight", "Revenue", "Oranges/Glass"):
+        assert hidden not in resp.text
+
+
+def test_admin_still_sees_full_breakdown_columns(client):
+    """Regression guard: the vendor-trimming above must not accidentally
+    strip Avg Price/Total Oranges/Avg Juice Weight from the admin view
+    too — only Revenue/Oranges-per-Glass were ever meant to stay
+    admin-only before this change; now everything but the glasses-sold
+    count itself is admin-only for vendors, but admin keeps all of it."""
+    test_client, SessionLocal = client
+    _seed_user(SessionLocal)
+    _seed_order_summary(SessionLocal, "2026-08-23", "NEXUS", "120.00", "UPI", n=10, oranges=25)
+    _login(test_client)
+
+    resp = test_client.get("/orders/summary?period=daily&as_of=2026-08-23")
+    assert resp.status_code == 200
+    for still_visible in ("Total Orders", "Avg Price", "Total Oranges", "Avg Juice Weight", "Revenue", "Oranges/Glass"):
+        assert still_visible in resp.text
+    assert "Glasses Sold" not in resp.text

@@ -19,6 +19,12 @@ half-day leave is always a single day, counted as 0.5 days in
 on an existing deployment — see README's "Staff & Leave Management"
 section.
 
+**Vendor Order Summary trimmed to glasses-sold only** (2026-09-10), per
+explicit request — venue partners now see exactly one figure (the
+glasses-sold count, i.e. `number_of_orders`) instead of Avg Price/Total
+Oranges/Avg Juice Weight alongside it (Revenue/Oranges-per-Glass were
+already admin-only). Admin's own view is unchanged.
+
 **Alert emails switched from SMTP to Resend's HTTPS API** (2026-09-06),
 after a real Critical-severity malfunction alert (Gravity) silently
 failed to send in production. Diagnosed live, in order: recipients were
