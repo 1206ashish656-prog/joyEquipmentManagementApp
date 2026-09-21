@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from backend.deps import get_db, require_admin
 from backend.security import hash_password
 from backend.templating import templates
-from db.models import User, UserRole, VenueMapping
+from db.models import User, UserRole, Venue, VenueMapping
 
 router = APIRouter()
 
@@ -28,7 +28,24 @@ _VALID_ROLES = {r.value for r in UserRole}
 
 
 def _venues(db: Session) -> list[str]:
-    return sorted({v for (v,) in db.execute(select(VenueMapping.venue_provider).distinct())})
+    """Every venue name an admin might assign a venue_partner to for the
+    Add/Edit User dropdown -- the UNION of the Venue master list
+    (/venues, admin-managed, what an admin actually thinks of as "the
+    existing venues") and VenueMapping's venue_provider values (the
+    machine-scoping table Order Summary actually reads from). These are
+    two separate tables (see db/models.py's Venue docstring) that only
+    agree by convention, not a hard FK -- before this fix, a venue
+    added at /venues alone (no machine mapped to it yet) never appeared
+    here at all, which is exactly the gap that prompted this: a real
+    venue existed and was invisible in this dropdown. Venue.active is
+    checked because /venues lets an admin deactivate one; VenueMapping
+    has no such concept, so every distinct value there is included
+    regardless."""
+    from_venue_master = {
+        v for (v,) in db.execute(select(Venue.name).where(Venue.active.is_(True)))
+    }
+    from_mapping = {v for (v,) in db.execute(select(VenueMapping.venue_provider).distinct())}
+    return sorted(from_venue_master | from_mapping)
 
 
 @router.get("/users", response_class=HTMLResponse)

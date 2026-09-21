@@ -9,6 +9,15 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Fix: venues added at `/venues` missing from the Add/Edit User venue
+dropdown** (2026-09-22) — real reported bug. The dropdown
+(`backend/api/users.py::_venues()`) only ever read `VenueMapping`
+(the machine-scoping table), a completely separate table from `Venue`
+(the master list `/venues` manages) that only agree by convention, not
+a hard FK — a venue added at `/venues` with no machine mapped to it
+yet was invisible here. Now returns the union of both, so newly-added
+venues are selectable immediately.
+
 **Senior Management Report: date-wise sales toggle** (2026-09-21), per
 explicit request. The generate-report form gained an "Include
 date-wise sales breakdown" checkbox — when checked, the PDF gets a new

@@ -12,7 +12,7 @@ from sqlalchemy.pool import StaticPool
 import db.base as db_base
 from backend.main import app
 from backend.security import hash_password
-from db.models import Base, User
+from db.models import Base, User, Venue, VenueMapping
 
 
 @pytest.fixture()
@@ -44,6 +44,18 @@ def _login(client, email, password="pw123456"):
     return client.post("/login", data={"email": email, "password": password}, follow_redirects=False)
 
 
+def _add_venue(SessionLocal, name, active=True):
+    with SessionLocal() as session:
+        session.add(Venue(name=name, active=active))
+        session.commit()
+
+
+def _add_venue_mapping(SessionLocal, machine_name, venue_provider):
+    with SessionLocal() as session:
+        session.add(VenueMapping(machine_name=machine_name, venue_provider=venue_provider))
+        session.commit()
+
+
 # --- RBAC baseline ---
 
 def test_users_requires_login(client):
@@ -51,6 +63,58 @@ def test_users_requires_login(client):
     resp = test_client.get("/users", follow_redirects=False)
     assert resp.status_code == 303
     assert resp.headers["location"] == "/login"
+
+
+# --- Venue dropdown (_venues()) ---
+
+def test_venue_added_at_venues_page_appears_in_add_user_dropdown(client):
+    """The actual bug report this fixes: a real venue existed (added at
+    /venues) with no machine mapped to it yet, and never showed up here
+    at all."""
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_venue(SessionLocal, "Brand New Venue")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/users")
+    assert resp.status_code == 200
+    assert "Brand New Venue" in resp.text
+
+
+def test_legacy_venue_mapping_only_venue_still_appears(client):
+    """Backward compatibility: a venue that only exists via VenueMapping
+    (no matching Venue master-list row) must not disappear."""
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_venue_mapping(SessionLocal, "NEXUS", "Forum Kormangala")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/users")
+    assert resp.status_code == 200
+    assert "Forum Kormangala" in resp.text
+
+
+def test_inactive_venue_does_not_appear_in_dropdown(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _add_venue(SessionLocal, "Deactivated Venue", active=False)
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get("/users")
+    assert resp.status_code == 200
+    assert "Deactivated Venue" not in resp.text
+
+
+def test_venue_dropdown_also_shown_on_edit_user_page(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    target_id = _add_user(SessionLocal, "ops@example.com", "operations")
+    _add_venue(SessionLocal, "Brand New Venue")
+    _login(test_client, "admin@example.com")
+
+    resp = test_client.get(f"/users/{target_id}/edit")
+    assert resp.status_code == 200
+    assert "Brand New Venue" in resp.text
 
 
 def test_operations_cannot_view_users(client):

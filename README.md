@@ -426,8 +426,22 @@ bug. Post-login redirect is role-aware too (`home_url_for` in
 (which they can't see).
 
 Admins assign role + venue when creating a user (`/users`, admin-only) —
-the "Venue Partner" role reveals a venue dropdown (populated from
-`venue_mapping`) that's required before the form will submit.
+the "Venue Partner" role reveals a venue dropdown that's required before
+the form will submit.
+
+**Venue dropdown fixed to include the `Venue` master list too
+(2026-09-22)** — `backend/api/users.py`'s `_venues()` originally listed
+only `VenueMapping.venue_provider` values, so a venue added at `/venues`
+(the separate master-list page added later for Recurring Costs, see
+"Senior Management Report"'s neighbor section below) never appeared
+here at all until a machine was also separately mapped to it via
+`db.seed_venue_mapping` — a real reported bug ("existing venues not
+appearing in the dropdown despite the /venues endpoint showing them").
+`_venues()` now returns the **union** of active `Venue.name` values and
+`VenueMapping.venue_provider` values, so a freshly-added venue is
+selectable immediately; a venue_partner assigned to one with no machine
+mapped yet still gets the existing "No machine is currently mapped to
+your venue" callout on Order Summary rather than a silent blank page.
 
 Existing deployments upgrading from before this feature need a manual
 schema patch (this project has no Alembic yet — see Phase 6 in
