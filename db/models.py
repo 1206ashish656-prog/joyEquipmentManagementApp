@@ -712,6 +712,12 @@ class ReportJob(Base):
     start: Mapped[str] = mapped_column(String(10))
     end: Mapped[str] = mapped_column(String(10))
     equipment_id: Mapped[int | None] = mapped_column(ForeignKey("equipment.id"), nullable=True)  # NULL = all machines
+    # Per explicit request: the day-by-day sales table (report.daily,
+    # already computed unconditionally by services/management_report.py
+    # for its own "sales over time" chart) only renders in the PDF when
+    # this is explicitly turned on -- default off, so the common case
+    # (a monthly/aggregated report) stays concise.
+    include_datewise_sales: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[ReportJobStatus] = mapped_column(_report_job_status_type, default=ReportJobStatus.PENDING, index=True)
     # Stored directly in Postgres rather than on disk -- this app has no
     # other on-disk file-storage convention, a report PDF is on the

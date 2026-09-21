@@ -54,6 +54,7 @@ async def render_html_to_pdf(html: str) -> bytes:
 
 async def render_management_report_pdf(
     db: Session, *, start: str, end: str, equipment_id: int | None, period: str,
+    include_datewise_sales: bool = False,
 ) -> bytes:
     """Builds the Senior Management Report (services/management_report.py)
     for a resolved date range + optional machine scope, picks the "sales
@@ -80,6 +81,7 @@ async def render_management_report_pdf(
     context = {
         "report": report,
         "generated_at": datetime.now(timezone.utc),
+        "include_datewise_sales": include_datewise_sales,
         "sales_over_time_chart": chart_svg.render_line_chart(
             time_series_labels, time_series_values, title="Sales Over Time (Orders)",
         ),

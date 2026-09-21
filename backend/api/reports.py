@@ -74,6 +74,7 @@ def create_report_job(
     start: str = Form(""),
     end: str = Form(""),
     equipment_id: str = Form(""),
+    include_datewise_sales: str = Form(""),
     admin: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
@@ -90,6 +91,7 @@ def create_report_job(
         start=resolved_start,
         end=resolved_end,
         equipment_id=equipment.id if equipment else None,
+        include_datewise_sales=bool(include_datewise_sales),
         status=ReportJobStatus.PENDING,
     ))
     return RedirectResponse(url="/reports/management", status_code=303)

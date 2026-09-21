@@ -58,6 +58,7 @@ async def process_pending_jobs() -> int:
             try:
                 pdf_bytes = await render_management_report_pdf(
                     db, start=job.start, end=job.end, equipment_id=job.equipment_id, period=job.period,
+                    include_datewise_sales=job.include_datewise_sales,
                 )
             except Exception as e:  # noqa: BLE001 -- one job's failure must never crash the shared worker loop
                 logger.exception("Report job %s failed", job_id)

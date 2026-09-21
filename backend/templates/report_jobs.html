@@ -35,6 +35,7 @@
           {% endfor %}
         </select>
       </label>
+      <label class="checkbox-label"><input type="checkbox" name="include_datewise_sales" value="1"> Include date-wise sales breakdown</label>
     </div>
     <button type="submit">Generate Report</button>
   </form>
@@ -43,7 +44,7 @@
 <section>
   <h2>Report History</h2>
   <table class="equipment-table">
-    <thead><tr><th>Requested</th><th>By</th><th>Period</th><th>Range</th><th>Scope</th><th>Status</th><th></th></tr></thead>
+    <thead><tr><th>Requested</th><th>By</th><th>Period</th><th>Range</th><th>Scope</th><th>Date-wise</th><th>Status</th><th></th></tr></thead>
     <tbody>
       {% for job, requester in jobs %}
       <tr>
@@ -52,6 +53,7 @@
         <td>{{ job.period|capitalize }}</td>
         <td>{{ job.start }}{% if job.end != job.start %} to {{ job.end }}{% endif %}</td>
         <td>{{ equipment_list|selectattr("id", "equalto", job.equipment_id)|map(attribute="name")|first or "All Machines" }}</td>
+        <td>{{ "Yes" if job.include_datewise_sales else "—" }}</td>
         <td>
           {% if job.status.value == "SUCCESS" %}<span class="badge badge-healthy">Ready</span>
           {% elif job.status.value == "FAILED" %}<span class="badge badge-malfunction" title="{{ job.error_message }}">Failed</span>
@@ -65,7 +67,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="7">No reports generated yet — use the form above to generate one.</td></tr>
+      <tr><td colspan="8">No reports generated yet — use the form above to generate one.</td></tr>
       {% endfor %}
     </tbody>
   </table>

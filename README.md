@@ -775,6 +775,27 @@ preview to keep in sync with it. This is completely independent of
 browser — a fresh instance per job, never touching the saved
 target-application session.
 
+**Date-wise Sales toggle (2026-09-21)**, per explicit request — "add
+datewise sales data toggle button" for viewing daily sales within the
+current month. The day-by-day breakdown (`report.daily`) was already
+computed unconditionally by `services/management_report.py` (it feeds
+the "Sales Over Time" chart for weekly/monthly periods) but never
+rendered as a table; the generate-report form now has an "Include
+date-wise sales breakdown" checkbox that adds a **Date-wise Sales**
+table (date/orders/revenue, one row per day in the report's range) to
+the PDF only when checked, keeping the default (aggregated/monthly)
+report concise. `ReportJob.include_datewise_sales` records the choice
+per job (shown as a Yes/— column in Report History) and flows through
+unchanged to `render_management_report_pdf()`.
+
+Migration note for an **existing** deployment (same "no Alembic"
+situation as elsewhere): `include_datewise_sales` is a new column on
+the existing live `report_job` table —
+```sql
+ALTER TABLE report_job ADD COLUMN include_datewise_sales BOOLEAN NOT NULL DEFAULT FALSE;
+```
+A fresh install gets this for free via `create_all()`.
+
 ## Fault Information detail in alerts (2026-08-29)
 
 A malfunction alert's coarse `fault_type` text (e.g. "Fault") never told

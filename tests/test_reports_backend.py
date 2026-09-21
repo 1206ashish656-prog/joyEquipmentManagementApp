@@ -125,6 +125,22 @@ def test_create_report_job_creates_pending_row(client):
         assert job.end == "2026-08-31"
         assert job.equipment_id is None
         assert job.pdf_data is None
+        assert job.include_datewise_sales is False
+
+
+def test_create_report_job_with_datewise_sales_toggle(client):
+    test_client, SessionLocal = client
+    _add_user(SessionLocal, "admin@example.com", "admin")
+    _login(test_client, "admin@example.com")
+
+    test_client.post(
+        "/reports/management/jobs",
+        data={"period": "monthly", "as_of": "2026-08-15", "include_datewise_sales": "1"},
+    )
+
+    with SessionLocal() as session:
+        job = session.execute(select(ReportJob)).scalar_one()
+        assert job.include_datewise_sales is True
 
 
 def test_create_report_job_scoped_to_a_machine(client):

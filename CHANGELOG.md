@@ -9,6 +9,16 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Senior Management Report: date-wise sales toggle** (2026-09-21), per
+explicit request. The generate-report form gained an "Include
+date-wise sales breakdown" checkbox — when checked, the PDF gets a new
+Date-wise Sales table (one row per day) alongside the existing Monthly
+Breakdown; off by default. The underlying daily data
+(`report.daily`) was already computed, just never shown as a table.
+Needs `ALTER TABLE report_job ADD COLUMN include_datewise_sales BOOLEAN NOT NULL DEFAULT FALSE;`
+on an existing deployment — see README's "Senior Management Report"
+section.
+
 **Editable/deletable staff leaves + half-day leave** (2026-09-10), per
 explicit request. Every Recent Leaves row gained Edit/Delete links
 (`/staff/leaves/{id}/edit`, `/staff/leaves/{id}/delete`), matching the

@@ -45,7 +45,7 @@ def _add_job(SessionLocal, **kwargs) -> int:
 async def test_process_pending_jobs_marks_success(session_factory, monkeypatch):
     job_id = _add_job(session_factory)
 
-    async def fake_render(db, *, start, end, equipment_id, period):
+    async def fake_render(db, *, start, end, equipment_id, period, include_datewise_sales=False):
         return b"%PDF-1.4 fake"
 
     monkeypatch.setattr(report_job_worker, "render_management_report_pdf", fake_render)
@@ -62,13 +62,32 @@ async def test_process_pending_jobs_marks_success(session_factory, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_process_pending_jobs_passes_include_datewise_sales_through(session_factory, monkeypatch):
+    job_id = _add_job(session_factory, include_datewise_sales=True)
+
+    seen = {}
+
+    async def fake_render(db, *, start, end, equipment_id, period, include_datewise_sales=False):
+        seen["include_datewise_sales"] = include_datewise_sales
+        return b"%PDF-1.4 fake"
+
+    monkeypatch.setattr(report_job_worker, "render_management_report_pdf", fake_render)
+
+    await report_job_worker.process_pending_jobs()
+
+    assert seen["include_datewise_sales"] is True
+    with session_factory() as session:
+        assert session.get(ReportJob, job_id).status == ReportJobStatus.SUCCESS
+
+
+@pytest.mark.asyncio
 async def test_process_pending_jobs_marks_failed_without_raising(session_factory, monkeypatch):
     """A single job's failure must never crash the loop -- it's recorded
     on the job instead (services/report_job_worker.py's module
     docstring)."""
     job_id = _add_job(session_factory)
 
-    async def failing_render(db, *, start, end, equipment_id, period):
+    async def failing_render(db, *, start, end, equipment_id, period, include_datewise_sales=False):
         raise RuntimeError("Playwright exploded")
 
     monkeypatch.setattr(report_job_worker, "render_management_report_pdf", failing_render)
@@ -92,7 +111,7 @@ async def test_only_pending_jobs_are_processed(session_factory, monkeypatch):
 
     calls = []
 
-    async def fake_render(db, *, start, end, equipment_id, period):
+    async def fake_render(db, *, start, end, equipment_id, period, include_datewise_sales=False):
         calls.append(1)
         return b"%PDF-new"
 
@@ -126,7 +145,7 @@ async def test_multiple_pending_jobs_all_processed_oldest_first(session_factory,
 
     order = []
 
-    async def fake_render(db, *, start, end, equipment_id, period):
+    async def fake_render(db, *, start, end, equipment_id, period, include_datewise_sales=False):
         order.append((start, end))
         return b"%PDF"
 
