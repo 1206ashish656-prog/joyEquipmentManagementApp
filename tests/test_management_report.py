@@ -14,6 +14,7 @@ from services.management_report import (
     _months_between,
     _time_of_day_seconds,
     build_report,
+    build_vendor_report,
     format_duration,
 )
 
@@ -319,3 +320,87 @@ def test_build_report_no_data_returns_empty_report(db_session):
     assert report.total_cost == Decimal("0.00")
     assert report.downtime == []
     assert report.venue_performance == []
+
+
+# --- build_vendor_report ---
+
+def _add_venue_mapping(db, machine_name, venue_provider):
+    db.add(VenueMapping(machine_name=machine_name, venue_provider=venue_provider))
+
+
+def test_build_vendor_report_scopes_to_venues_machines_only(db_session):
+    """The core correctness requirement: a venue with 2 machines gets
+    both, but a THIRD machine belonging to a different venue must never
+    leak into the total."""
+    _add_venue_mapping(db_session, "PNR", "PNR Felicity")
+    _add_venue_mapping(db_session, "Navi", "PNR Felicity")
+    _add_venue_mapping(db_session, "NEXUS", "Forum Kormangala")
+    _add_order_summary(db_session, "2026-08-10", "PNR", n=10)
+    _add_order_summary(db_session, "2026-08-10", "Navi", n=5)
+    _add_order_summary(db_session, "2026-08-10", "NEXUS", n=100)  # different venue -- must not count
+    db_session.flush()
+
+    report = build_vendor_report(db_session, "2026-08-01", "2026-08-31", "PNR Felicity")
+
+    assert report.total_orders == 15
+    assert report.venue == "PNR Felicity"
+
+
+def test_build_vendor_report_has_no_revenue_field_at_all():
+    """Belt-and-suspenders check on the dataclass shape itself, not
+    just template rendering -- a future template bug can't leak
+    revenue if the object never carries it."""
+    from dataclasses import fields
+    from services.management_report import VendorSalesReport
+
+    field_names = {f.name for f in fields(VendorSalesReport)}
+    assert "revenue" not in field_names
+    assert "cost" not in field_names
+    assert "profit" not in field_names
+
+
+def test_build_vendor_report_venue_provider_matched_case_insensitively(db_session):
+    _add_venue_mapping(db_session, "PNR", "PNR Felicity")
+    _add_order_summary(db_session, "2026-08-10", "PNR", n=7)
+    db_session.flush()
+
+    report = build_vendor_report(db_session, "2026-08-01", "2026-08-31", "pnr felicity")
+
+    assert report.total_orders == 7
+
+
+def test_build_vendor_report_monthly_breakdown_spans_ytd_range(db_session):
+    """Directly matches the explicit requirement: a YTD-shaped date
+    range naturally produces a month-by-month breakdown, since monthly
+    is always computed regardless of the day-count involved."""
+    _add_venue_mapping(db_session, "PNR", "PNR Felicity")
+    _add_order_summary(db_session, "2026-02-15", "PNR", n=3)
+    _add_order_summary(db_session, "2026-08-10", "PNR", n=4)
+    db_session.flush()
+
+    report = build_vendor_report(db_session, "2026-01-01", "2026-08-31", "PNR Felicity")
+
+    assert len(report.monthly) == 8  # Jan through Aug, zero-filled
+    by_month = {m.month: m.orders for m in report.monthly}
+    assert by_month["2026-02"] == 3
+    assert by_month["2026-08"] == 4
+    assert by_month["2026-01"] == 0
+
+
+def test_build_vendor_report_daily_breakdown_includes_zero_days(db_session):
+    _add_venue_mapping(db_session, "PNR", "PNR Felicity")
+    _add_order_summary(db_session, "2026-08-10", "PNR", n=3)
+    db_session.flush()
+
+    report = build_vendor_report(db_session, "2026-08-09", "2026-08-11", "PNR Felicity")
+
+    assert [(d.date, d.orders) for d in report.daily] == [
+        ("2026-08-09", 0), ("2026-08-10", 3), ("2026-08-11", 0),
+    ]
+
+
+def test_build_vendor_report_no_mapped_machines_is_all_zero_not_an_error(db_session):
+    report = build_vendor_report(db_session, "2026-08-01", "2026-08-31", "Nonexistent Venue")
+
+    assert report.total_orders == 0
+    assert report.venue == "Nonexistent Venue"

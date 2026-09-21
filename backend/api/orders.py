@@ -11,15 +11,15 @@ import json
 from datetime import date as date_cls
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, Form, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.deps import get_db, require_venue_partner
 from backend.period_utils import PERIODS, period_range
 from backend.templating import templates
-from db.models import OrderSummary, OrderSummaryRun, OrderSummaryRunStatus, User, VenueMapping
+from db.models import OrderSummary, OrderSummaryRun, OrderSummaryRunStatus, ReportJob, ReportJobStatus, User, VenueMapping
 from orders.rollup import rollup
 
 router = APIRouter()
@@ -165,6 +165,21 @@ def orders_summary(
     aggregate_chart_data = _time_series_payload(rows, split_by_machine=False, include_revenue=include_revenue)
     machine_chart_data = _time_series_payload(rows, split_by_machine=True, include_revenue=include_revenue) if by_machine else None
 
+    # Report-download section (venue_partner only) -- their own report
+    # history, never another vendor's (see the download route's
+    # ownership check for why this filter matters beyond just display).
+    vendor_report_jobs = []
+    if user.role == "venue_partner" and user.venue_provider:
+        vendor_report_jobs = db.execute(
+            select(ReportJob)
+            .where(ReportJob.venue_provider == user.venue_provider)
+            .order_by(ReportJob.created_at.desc())
+            .limit(20)
+        ).scalars().all()
+    vendor_report_in_progress = any(
+        j.status in (ReportJobStatus.PENDING, ReportJobStatus.RUNNING) for j in vendor_report_jobs
+    )
+
     return templates.TemplateResponse(
         request,
         "order_summary.html",
@@ -188,5 +203,80 @@ def orders_summary(
             "venue_machines": venue_machines,
             "aggregate_chart_json": json.dumps(aggregate_chart_data, cls=_DecimalEncoder),
             "machine_chart_json": json.dumps(machine_chart_data, cls=_DecimalEncoder) if machine_chart_data else None,
+            "report_periods": PERIODS,
+            "today": date_cls.today().isoformat(),
+            "vendor_report_jobs": vendor_report_jobs,
+            "vendor_report_in_progress": vendor_report_in_progress,
         },
+    )
+
+
+@router.post("/orders/summary/report")
+def create_vendor_report_job(
+    period: str = Form("monthly"),
+    as_of: str = Form(""),
+    start: str = Form(""),
+    end: str = Form(""),
+    include_datewise_sales: str = Form(""),
+    user: User = Depends(require_venue_partner),
+    db: Session = Depends(get_db),
+):
+    # require_venue_partner also admits admin (it's shared with this
+    # whole page) -- but this specific report-download feature is
+    # vendor-only per explicit request ("provide report downloading
+    # option to vendors"); admin already has the full /reports/management.
+    # An admin has no venue_provider to scope a vendor job to, so this
+    # must reject rather than silently create a NULL-venue job that
+    # report_job_worker.py would then misinterpret as an admin
+    # "All Machines" management report.
+    if user.role != "venue_partner":
+        return RedirectResponse(url="/orders/summary", status_code=303)
+    if not user.venue_provider:
+        return RedirectResponse(url="/orders/summary", status_code=303)
+
+    if period not in PERIODS:
+        period = "monthly"
+    resolved_as_of = as_of or date_cls.today().isoformat()
+    resolved_start, resolved_end = period_range(period, resolved_as_of, start=start, end=end)
+
+    db.add(ReportJob(
+        requested_by_user_id=user.id,
+        period=period,
+        as_of=resolved_as_of,
+        start=resolved_start,
+        end=resolved_end,
+        equipment_id=None,
+        venue_provider=user.venue_provider,
+        include_datewise_sales=bool(include_datewise_sales),
+        status=ReportJobStatus.PENDING,
+    ))
+    return RedirectResponse(url="/orders/summary", status_code=303)
+
+
+@router.get("/orders/summary/report/{job_id}/download")
+def download_vendor_report_job(
+    job_id: int, user: User = Depends(require_venue_partner), db: Session = Depends(get_db),
+):
+    job = db.get(ReportJob, job_id)
+    # Ownership check: a venue partner must never be able to download
+    # another vendor's report by guessing/incrementing a job_id, and an
+    # admin-initiated job (venue_provider is None) is never reachable
+    # here either -- both collapse to the same "as if it doesn't exist"
+    # redirect, not a distinguishable error, so a guessed ID can't be
+    # used to probe which job_ids exist.
+    if (
+        job is None
+        or job.venue_provider is None
+        or user.role != "venue_partner"
+        or job.venue_provider != user.venue_provider
+        or job.status != ReportJobStatus.SUCCESS
+        or not job.pdf_data
+    ):
+        return RedirectResponse(url="/orders/summary", status_code=303)
+
+    filename = f"sales-report_{job.start}_to_{job.end}_{job.venue_provider.replace(' ', '_')}.pdf"
+    return Response(
+        content=job.pdf_data,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

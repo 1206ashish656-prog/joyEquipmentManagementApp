@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Order Summary — Equipment Monitor{% endblock %}
-{% block head_extra %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>{% endblock %}
+{% block head_extra %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>{% if vendor_report_in_progress %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
 {% block content %}
 <h1>Order Summary</h1>
 
@@ -110,6 +110,81 @@
     </tbody>
   </table>
 </section>
+
+{% if user.role == "venue_partner" %}
+<section class="status-panel">
+  <h2>Download a Sales Report</h2>
+  <p class="callout">A PDF of your glasses-sold figures — generation runs in the background, same as the Senior Management Report; check back in a few seconds and download it below once it's ready.</p>
+  <form method="post" action="/orders/summary/report" class="order-filter-form" id="vendor-report-form">
+    <div class="filter-group">
+      <label>Period
+        <select name="period" id="vendor-report-period-select">
+          {% for p in report_periods %}
+          <option value="{{ p }}">{{ "Custom range" if p == "custom" else p|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label id="vendor-report-as-of-field">As of
+        <input type="date" name="as_of" value="{{ today }}">
+      </label>
+      <label id="vendor-report-start-field" style="display:none;">Start
+        <input type="date" name="start" value="{{ today }}">
+      </label>
+      <label id="vendor-report-end-field" style="display:none;">End
+        <input type="date" name="end" value="{{ today }}">
+      </label>
+    </div>
+    <label class="checkbox-label"><input type="checkbox" name="include_datewise_sales" value="1"> Include date-wise sales breakdown</label>
+    <button type="submit">Generate Report</button>
+  </form>
+</section>
+
+<section>
+  <h2>Your Report History</h2>
+  <table class="equipment-table">
+    <thead><tr><th>Requested</th><th>Period</th><th>Range</th><th>Date-wise</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for job in vendor_report_jobs %}
+      <tr>
+        <td>{{ job.created_at | ist }}</td>
+        <td>{{ job.period|capitalize }}</td>
+        <td>{{ job.start }}{% if job.end != job.start %} to {{ job.end }}{% endif %}</td>
+        <td>{{ "Yes" if job.include_datewise_sales else "—" }}</td>
+        <td>
+          {% if job.status.value == "SUCCESS" %}<span class="badge badge-healthy">Ready</span>
+          {% elif job.status.value == "FAILED" %}<span class="badge badge-malfunction">Failed</span>
+          {% else %}<span class="badge badge-warning">{{ job.status.value|capitalize }}</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if job.status.value == "SUCCESS" %}
+          <a href="/orders/summary/report/{{ job.id }}/download">⬇ Download PDF</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6">No reports generated yet — use the form above to generate one.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+<script>
+  (function () {
+    var periodSelect = document.getElementById("vendor-report-period-select");
+    var asOfField = document.getElementById("vendor-report-as-of-field");
+    var startField = document.getElementById("vendor-report-start-field");
+    var endField = document.getElementById("vendor-report-end-field");
+    function syncPeriod() {
+      var custom = periodSelect.value === "custom";
+      asOfField.style.display = custom ? "none" : "flex";
+      startField.style.display = custom ? "flex" : "none";
+      endField.style.display = custom ? "flex" : "none";
+    }
+    periodSelect.addEventListener("change", syncPeriod);
+    syncPeriod();
+  })();
+</script>
+{% endif %}
 
 <script>
 const colors = ['#2563eb', '#16a34a', '#ca8a04', '#dc2626', '#7c3aed', '#0891b2', '#db2777'];

@@ -81,6 +81,62 @@ async def test_process_pending_jobs_passes_include_datewise_sales_through(sessio
 
 
 @pytest.mark.asyncio
+async def test_venue_provider_job_calls_vendor_render_not_management(session_factory, monkeypatch):
+    job_id = _add_job(session_factory, venue_provider="PNR Felicity", equipment_id=None)
+
+    management_called = []
+    vendor_seen = {}
+
+    async def fake_management_render(db, *, start, end, equipment_id, period, include_datewise_sales=False):
+        management_called.append(True)
+        return b"%PDF-1.4 should not be called"
+
+    async def fake_vendor_render(db, *, start, end, venue_provider, include_datewise_sales=False):
+        vendor_seen["venue_provider"] = venue_provider
+        vendor_seen["include_datewise_sales"] = include_datewise_sales
+        return b"%PDF-1.4 vendor"
+
+    monkeypatch.setattr(report_job_worker, "render_management_report_pdf", fake_management_render)
+    monkeypatch.setattr(report_job_worker, "render_vendor_report_pdf", fake_vendor_render)
+
+    await report_job_worker.process_pending_jobs()
+
+    assert management_called == []
+    assert vendor_seen["venue_provider"] == "PNR Felicity"
+    with session_factory() as session:
+        job = session.get(ReportJob, job_id)
+        assert job.status == ReportJobStatus.SUCCESS
+        assert job.pdf_data == b"%PDF-1.4 vendor"
+
+
+@pytest.mark.asyncio
+async def test_no_venue_provider_job_calls_management_not_vendor(session_factory, monkeypatch):
+    """Regression guard: an ordinary admin job (venue_provider=None,
+    the default) must keep going through the original path."""
+    job_id = _add_job(session_factory)
+
+    vendor_called = []
+
+    async def fake_management_render(db, *, start, end, equipment_id, period, include_datewise_sales=False):
+        return b"%PDF-1.4 management"
+
+    async def fake_vendor_render(db, *, start, end, venue_provider, include_datewise_sales=False):
+        vendor_called.append(True)
+        return b"%PDF-1.4 should not be called"
+
+    monkeypatch.setattr(report_job_worker, "render_management_report_pdf", fake_management_render)
+    monkeypatch.setattr(report_job_worker, "render_vendor_report_pdf", fake_vendor_render)
+
+    await report_job_worker.process_pending_jobs()
+
+    assert vendor_called == []
+    with session_factory() as session:
+        job = session.get(ReportJob, job_id)
+        assert job.status == ReportJobStatus.SUCCESS
+        assert job.pdf_data == b"%PDF-1.4 management"
+
+
+@pytest.mark.asyncio
 async def test_process_pending_jobs_marks_failed_without_raising(session_factory, monkeypatch):
     """A single job's failure must never crash the loop -- it's recorded
     on the job instead (services/report_job_worker.py's module

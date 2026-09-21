@@ -712,6 +712,16 @@ class ReportJob(Base):
     start: Mapped[str] = mapped_column(String(10))
     end: Mapped[str] = mapped_column(String(10))
     equipment_id: Mapped[int | None] = mapped_column(ForeignKey("equipment.id"), nullable=True)  # NULL = all machines
+    # Set only for a vendor-initiated report (backend/api/orders.py,
+    # gated to venue_partner) -- NULL means an admin-initiated report
+    # (services/management_report.py's full ManagementReport); a value
+    # means services/report_job_worker.py instead renders the
+    # sales-only VendorSalesReport, scoped to this venue's machine(s)
+    # only. Mutually exclusive with equipment_id (a vendor job never
+    # sets it) -- there's no CHECK constraint for this since it's a
+    # small enough invariant that both write paths already enforce it
+    # themselves, same level of rigor as this table's other fields.
+    venue_provider: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Per explicit request: the day-by-day sales table (report.daily,
     # already computed unconditionally by services/management_report.py
     # for its own "sales over time" chart) only renders in the PDF when

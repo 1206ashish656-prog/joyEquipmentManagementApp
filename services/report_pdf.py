@@ -93,3 +93,30 @@ async def render_management_report_pdf(
     }
     html = templates.get_template("management_report_pdf.html").render(context)
     return await render_html_to_pdf(html)
+
+
+async def render_vendor_report_pdf(
+    db: Session, *, start: str, end: str, venue_provider: str, include_datewise_sales: bool = False,
+) -> bytes:
+    """The vendor (venue_partner) equivalent of render_management_report_pdf
+    -- per explicit request, a much simpler sales-only report (no
+    revenue/cost/profit/venue-comparison/downtime, no chart), scoped to
+    one venue's own machine(s). Always includes the Monthly Breakdown
+    table (naturally the right shape for a YTD request, which spans
+    many months); the day-by-day table is additive, shown only when
+    include_datewise_sales is set -- same toggle semantics as the admin
+    report. Local imports for the same reason render_management_report_pdf
+    uses them: backend.templating pulls in FastAPI's Jinja2Templates,
+    which no other function in this module needs at import time."""
+    from backend.templating import templates
+    from services.management_report import build_vendor_report
+
+    report = build_vendor_report(db, start, end, venue_provider)
+
+    context = {
+        "report": report,
+        "generated_at": datetime.now(timezone.utc),
+        "include_datewise_sales": include_datewise_sales,
+    }
+    html = templates.get_template("vendor_report_pdf.html").render(context)
+    return await render_html_to_pdf(html)

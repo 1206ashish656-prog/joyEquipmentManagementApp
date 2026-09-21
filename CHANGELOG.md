@@ -9,6 +9,20 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Vendor-downloadable sales report** (2026-09-22), per explicit
+request. Venue partners can now generate/download their own PDF sales
+report from `/orders/summary`, reusing the Senior Management Report's
+`ReportJob` background-worker infrastructure but rendering a separate,
+minimal `VendorSalesReport` object with no revenue/cost/profit field
+at all (not just hidden in the template) — glasses-sold only, scoped
+to their own venue's machine(s). Always shows a Monthly Breakdown
+table (naturally the right shape for a YTD request); the same
+"Include date-wise sales breakdown" checkbox as the admin report adds
+a day-by-day table too. Download route enforces per-vendor ownership.
+Needs `ALTER TABLE report_job ADD COLUMN venue_provider VARCHAR(255);`
+on an existing deployment — see README's "Vendor (venue_partner) view"
+section.
+
 **Auto-sync a Venue to a same-named machine** (2026-09-22), per
 explicit request. New `services/venue_machine_sync.py` auto-creates a
 `VenueMapping` row whenever a venue's name exactly matches exactly one

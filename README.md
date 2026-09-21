@@ -328,6 +328,72 @@ flexible period/breakdown queries the UI needs.
   UTC+8** — see the next section. The UTC+8 finding above is still true
   and still relied on internally, just no longer what gets reported.
 
+### Vendor (venue_partner) view: glasses-sold only, plus a downloadable report
+
+Two related, explicit-request changes narrowing what a venue partner
+sees on `/orders/summary`, on top of the RBAC scoping above:
+
+**Trimmed to glasses-sold only (2026-09-10)** — the KPI tile row and
+Breakdown table show a venue partner exactly ONE figure, the
+glasses-sold count (`number_of_orders` — this vending-machine business
+dispenses one cup per qualifying order, there's no separate
+multi-glass-order concept anywhere in the data). Avg Price/Total
+Oranges/Avg Juice Weight are now admin-only alongside the
+already-admin-only Revenue/Oranges-per-Glass. Admin's own view is
+unchanged. Template-only change (`order_summary.html`) — no route/data
+logic touched, since the underlying rows were already computed
+identically for both roles; only which fields render was ever
+role-gated.
+
+**Downloadable sales report (2026-09-22)**, per explicit request:
+"provide report downloading option to vendors in vendor view. If
+datewise data is selected, then provide datewise data. If ytd is
+selected then, return monthwise sales summary." Reuses the Senior
+Management Report's exact `ReportJob`/background-worker infrastructure
+(same PENDING → RUNNING → SUCCESS/FAILED lifecycle, same "generation
+never blocks a web request" guarantee) rather than building a parallel
+system, but renders a **deliberately separate, minimal** object —
+`services/management_report.py`'s `VendorSalesReport` — that has no
+revenue/cost/profit/venue-comparison/downtime field **at all**, not
+just those fields hidden at the template layer like the KPI-tile fix
+above. The reasoning: a future template bug can't leak what the object
+never carries in the first place — the same "can't leak what isn't
+there" logic already behind the PayU/SMTP credential-never-logged
+rules elsewhere in this app.
+
+- `ReportJob` gained a `venue_provider` column (`NULL` = the existing
+  admin-initiated report; set = a vendor-initiated one, always with
+  `equipment_id=NULL`) — `services/report_job_worker.py` branches on it
+  to call `render_vendor_report_pdf()` instead of
+  `render_management_report_pdf()`.
+- The report always includes a **Monthly Breakdown** table (glasses
+  sold per month) — this is what naturally satisfies "if YTD selected,
+  return monthwise sales summary," since a YTD-shaped date range simply
+  produces many months in that same, always-present table; no separate
+  YTD-specific code path exists.
+- The **same "Include date-wise sales breakdown" checkbox** as the
+  admin report adds a **Date-wise Sales** table (glasses sold per day)
+  — satisfies "if datewise data is selected, then provide datewise
+  data" directly.
+- `GET /orders/summary/report/{job_id}/download` enforces ownership
+  (`job.venue_provider == user.venue_provider`) — a venue partner can
+  never download another vendor's report by guessing a job ID; both a
+  wrong owner and a nonexistent job collapse to the same redirect, not
+  a distinguishable error.
+- New venue-scoping resolution (`services/management_report.py`'s
+  `_venue_machines` + `build_vendor_report`) is a deliberate duplicate
+  of `backend/api/orders.py`'s own `_venue_machines`, not a shared
+  import — same "small local helper per module" convention already
+  used by `venues.py`/`users.py`'s own separate venue-name helpers.
+
+Migration note for an **existing** deployment (same "no Alembic"
+situation as elsewhere): `venue_provider` is a new column on the
+existing live `report_job` table —
+```sql
+ALTER TABLE report_job ADD COLUMN venue_provider VARCHAR(255);
+```
+A fresh install gets this for free via `create_all()`.
+
 ### Reporting timezone: IST, not the target's UTC+8
 
 Per explicit request (2026-08-24): every day boundary this app reports

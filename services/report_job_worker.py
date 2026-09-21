@@ -30,7 +30,7 @@ from sqlalchemy import select
 from db import base as db_base
 from db.models import ReportJob, ReportJobStatus
 from monitoring.config import load_settings
-from services.report_pdf import render_management_report_pdf
+from services.report_pdf import render_management_report_pdf, render_vendor_report_pdf
 
 logger = logging.getLogger("services.report_job_worker")
 
@@ -56,10 +56,19 @@ async def process_pending_jobs() -> int:
             db.flush()
 
             try:
-                pdf_bytes = await render_management_report_pdf(
-                    db, start=job.start, end=job.end, equipment_id=job.equipment_id, period=job.period,
-                    include_datewise_sales=job.include_datewise_sales,
-                )
+                if job.venue_provider is not None:
+                    # Vendor-initiated (backend/api/orders.py, gated to
+                    # venue_partner) -- the sales-only report, resolved
+                    # fresh against VenueMapping at render time.
+                    pdf_bytes = await render_vendor_report_pdf(
+                        db, start=job.start, end=job.end, venue_provider=job.venue_provider,
+                        include_datewise_sales=job.include_datewise_sales,
+                    )
+                else:
+                    pdf_bytes = await render_management_report_pdf(
+                        db, start=job.start, end=job.end, equipment_id=job.equipment_id, period=job.period,
+                        include_datewise_sales=job.include_datewise_sales,
+                    )
             except Exception as e:  # noqa: BLE001 -- one job's failure must never crash the shared worker loop
                 logger.exception("Report job %s failed", job_id)
                 job.status = ReportJobStatus.FAILED

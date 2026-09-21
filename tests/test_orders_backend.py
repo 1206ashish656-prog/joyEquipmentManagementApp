@@ -8,14 +8,14 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import db.base as db_base
 from backend.main import app
 from backend.security import hash_password
-from db.models import Base, OrderSummary, OrderSummaryRun, OrderSummaryRunStatus, User
+from db.models import Base, OrderSummary, OrderSummaryRun, OrderSummaryRunStatus, ReportJob, ReportJobStatus, User, VenueMapping
 
 
 @pytest.fixture()
@@ -40,6 +40,15 @@ def _login(client, email="admin@example.com", password="correct-horse"):
 def _seed_user(SessionLocal):
     with SessionLocal() as session:
         session.add(User(name="Admin", email="admin@example.com", role="admin", active=True, password_hash=hash_password("correct-horse")))
+        session.commit()
+
+
+def _add_venue_partner(SessionLocal, email, venue_provider, password="pw123456"):
+    with SessionLocal() as session:
+        session.add(User(
+            name=email.split("@")[0], email=email, role="venue_partner", venue_provider=venue_provider,
+            active=True, password_hash=hash_password(password),
+        ))
         session.commit()
 
 
@@ -368,3 +377,196 @@ def test_admin_still_sees_full_breakdown_columns(client):
     for still_visible in ("Total Orders", "Avg Price", "Total Oranges", "Avg Juice Weight", "Revenue", "Oranges/Glass"):
         assert still_visible in resp.text
     assert "Glasses Sold" not in resp.text
+
+
+# --- Vendor report download (POST /orders/summary/report, GET .../download) ---
+
+def test_vendor_sees_download_report_section(client):
+    test_client, SessionLocal = client
+    _add_venue_partner(SessionLocal, "venue@example.com", "PNR Felicity")
+    _login(test_client, "venue@example.com", "pw123456")
+
+    resp = test_client.get("/orders/summary")
+    assert resp.status_code == 200
+    assert "Download a Sales Report" in resp.text
+
+
+def test_admin_does_not_see_download_report_section(client):
+    """This feature is vendor-only -- admin already has the full
+    Senior Management Report."""
+    test_client, SessionLocal = client
+    _seed_user(SessionLocal)
+    _login(test_client)
+
+    resp = test_client.get("/orders/summary")
+    assert resp.status_code == 200
+    assert "Download a Sales Report" not in resp.text
+
+
+def test_create_vendor_report_job(client):
+    test_client, SessionLocal = client
+    _add_venue_partner(SessionLocal, "venue@example.com", "PNR Felicity")
+    _login(test_client, "venue@example.com", "pw123456")
+
+    resp = test_client.post(
+        "/orders/summary/report", data={"period": "monthly", "as_of": "2026-08-15"}, follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    with SessionLocal() as session:
+        job = session.execute(select(ReportJob)).scalar_one()
+        assert job.venue_provider == "PNR Felicity"
+        assert job.equipment_id is None
+        assert job.status == ReportJobStatus.PENDING
+        assert job.start == "2026-08-01"
+        assert job.end == "2026-08-31"
+        assert job.include_datewise_sales is False
+
+
+def test_create_vendor_report_job_with_datewise_toggle(client):
+    test_client, SessionLocal = client
+    _add_venue_partner(SessionLocal, "venue@example.com", "PNR Felicity")
+    _login(test_client, "venue@example.com", "pw123456")
+
+    test_client.post(
+        "/orders/summary/report",
+        data={"period": "monthly", "as_of": "2026-08-15", "include_datewise_sales": "1"},
+    )
+    with SessionLocal() as session:
+        assert session.execute(select(ReportJob)).scalar_one().include_datewise_sales is True
+
+
+def test_admin_cannot_create_vendor_report_job(client):
+    """Admin has no venue_provider -- must be rejected, not silently
+    create a NULL-venue job that report_job_worker.py would then
+    misread as a management report."""
+    test_client, SessionLocal = client
+    _seed_user(SessionLocal)
+    _login(test_client)
+
+    resp = test_client.post("/orders/summary/report", data={"period": "monthly", "as_of": "2026-08-15"}, follow_redirects=False)
+    assert resp.status_code == 303
+    with SessionLocal() as session:
+        assert session.execute(select(ReportJob)).scalars().all() == []
+
+
+def test_venue_partner_with_no_venue_assigned_cannot_create_job(client):
+    test_client, SessionLocal = client
+    _add_venue_partner(SessionLocal, "venue@example.com", None)
+    _login(test_client, "venue@example.com", "pw123456")
+
+    test_client.post("/orders/summary/report", data={"period": "monthly", "as_of": "2026-08-15"})
+    with SessionLocal() as session:
+        assert session.execute(select(ReportJob)).scalars().all() == []
+
+
+def test_vendor_sees_only_their_own_report_history(client):
+    test_client, SessionLocal = client
+    _add_venue_partner(SessionLocal, "venue1@example.com", "PNR Felicity")
+    _add_venue_partner(SessionLocal, "venue2@example.com", "Forum Kormangala")
+    with SessionLocal() as session:
+        session.add(ReportJob(
+            period="monthly", as_of="2026-08-15", start="2026-08-01", end="2026-08-31",
+            venue_provider="PNR Felicity", status=ReportJobStatus.SUCCESS, pdf_data=b"%PDF-1.4 mine",
+        ))
+        session.add(ReportJob(
+            period="monthly", as_of="2026-08-15", start="2026-08-01", end="2026-08-31",
+            venue_provider="Forum Kormangala", status=ReportJobStatus.SUCCESS, pdf_data=b"%PDF-1.4 not mine",
+        ))
+        session.commit()
+    _login(test_client, "venue1@example.com", "pw123456")
+
+    resp = test_client.get("/orders/summary")
+    assert resp.status_code == 200
+    assert "PNR Felicity" in resp.text or "/orders/summary/report/1/download" in resp.text
+    # Only one row's worth of download link should exist for this vendor.
+    assert resp.text.count("Download PDF") == 1
+
+
+def test_vendor_can_download_their_own_ready_report(client):
+    test_client, SessionLocal = client
+    _add_venue_partner(SessionLocal, "venue@example.com", "PNR Felicity")
+    with SessionLocal() as session:
+        job = ReportJob(
+            period="monthly", as_of="2026-08-15", start="2026-08-01", end="2026-08-31",
+            venue_provider="PNR Felicity", status=ReportJobStatus.SUCCESS, pdf_data=b"%PDF-1.4 fake",
+        )
+        session.add(job)
+        session.commit()
+        session.refresh(job)
+        job_id = job.id
+    _login(test_client, "venue@example.com", "pw123456")
+
+    resp = test_client.get(f"/orders/summary/report/{job_id}/download")
+    assert resp.status_code == 200
+    assert resp.content == b"%PDF-1.4 fake"
+    assert resp.headers["content-type"] == "application/pdf"
+
+
+def test_vendor_cannot_download_another_vendors_report(client):
+    test_client, SessionLocal = client
+    _add_venue_partner(SessionLocal, "venue1@example.com", "PNR Felicity")
+    _add_venue_partner(SessionLocal, "venue2@example.com", "Forum Kormangala")
+    with SessionLocal() as session:
+        job = ReportJob(
+            period="monthly", as_of="2026-08-15", start="2026-08-01", end="2026-08-31",
+            venue_provider="Forum Kormangala", status=ReportJobStatus.SUCCESS, pdf_data=b"%PDF-1.4 not yours",
+        )
+        session.add(job)
+        session.commit()
+        session.refresh(job)
+        job_id = job.id
+    _login(test_client, "venue1@example.com", "pw123456")  # PNR Felicity, not the job's owner
+
+    resp = test_client.get(f"/orders/summary/report/{job_id}/download", follow_redirects=False)
+    assert resp.status_code == 303  # redirected away, same as a nonexistent job -- never a distinguishable error
+    with SessionLocal() as session:
+        assert session.get(ReportJob, job_id).pdf_data == b"%PDF-1.4 not yours"  # untouched
+
+
+def test_admin_cannot_download_via_vendor_route(client):
+    """An admin-initiated job (venue_provider=None) must never be
+    downloadable through this vendor-only route, even by an admin."""
+    test_client, SessionLocal = client
+    _seed_user(SessionLocal)
+    with SessionLocal() as session:
+        job = ReportJob(
+            period="monthly", as_of="2026-08-15", start="2026-08-01", end="2026-08-31",
+            venue_provider=None, status=ReportJobStatus.SUCCESS, pdf_data=b"%PDF-1.4 admin report",
+        )
+        session.add(job)
+        session.commit()
+        session.refresh(job)
+        job_id = job.id
+    _login(test_client)
+
+    resp = test_client.get(f"/orders/summary/report/{job_id}/download", follow_redirects=False)
+    assert resp.status_code == 303
+
+
+def test_download_pending_job_redirects_instead_of_serving_garbage(client):
+    test_client, SessionLocal = client
+    _add_venue_partner(SessionLocal, "venue@example.com", "PNR Felicity")
+    with SessionLocal() as session:
+        job = ReportJob(
+            period="monthly", as_of="2026-08-15", start="2026-08-01", end="2026-08-31",
+            venue_provider="PNR Felicity", status=ReportJobStatus.PENDING,
+        )
+        session.add(job)
+        session.commit()
+        session.refresh(job)
+        job_id = job.id
+    _login(test_client, "venue@example.com", "pw123456")
+
+    resp = test_client.get(f"/orders/summary/report/{job_id}/download", follow_redirects=False)
+    assert resp.status_code == 303
+
+
+def test_operations_cannot_access_vendor_report_routes(client):
+    test_client, SessionLocal = client
+    with SessionLocal() as session:
+        session.add(User(name="Ops", email="ops@example.com", role="operations", active=True, password_hash=hash_password("pw123456")))
+        session.commit()
+    _login(test_client, "ops@example.com", "pw123456")
+
+    resp = test_client.post("/orders/summary/report", data={"period": "monthly", "as_of": "2026-08-15"}, follow_redirects=False)
+    assert resp.status_code == 403

@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from db.models import CostEntry, Equipment, FaultLogHistory, OrderSummary, VenueMapping
@@ -84,6 +84,36 @@ class VenuePerformance:
     orders: int
     revenue: Decimal
     performance: str  # "Outperforming" | "Underperforming" | "Average"
+
+
+@dataclass
+class VendorMonthlyRow:
+    month: str  # 'YYYY-MM'
+    orders: int  # glasses sold
+
+
+@dataclass
+class VendorDailyRow:
+    date: str  # 'YYYY-MM-DD'
+    orders: int  # glasses sold
+
+
+@dataclass
+class VendorSalesReport:
+    """Deliberately a SEPARATE, minimal object from ManagementReport —
+    not the same dataclass with fields hidden at the template layer.
+    Per explicit request, a vendor's report shows glasses sold only
+    (no revenue/cost/profit/venue-comparison/downtime); giving it no
+    revenue field at all means a future template bug can never leak
+    one, the same "can't leak what isn't there" reasoning already
+    applied to the vendor Order Summary view and the PayU/SMTP
+    credential-never-logged rules elsewhere in this app."""
+    start: str
+    end: str
+    venue: str
+    total_orders: int
+    monthly: list[VendorMonthlyRow]
+    daily: list[VendorDailyRow]
 
 
 @dataclass
@@ -375,4 +405,56 @@ def build_report(db: Session, start: str, end: str, equipment_id: int | None) ->
         daily=daily,
         venue_performance=venue_performance,
         downtime=downtime,
+    )
+
+
+def _venue_machines(db: Session, venue_provider: str) -> list[str]:
+    """Same case-insensitive VenueMapping match as
+    backend/api/orders.py's own _venue_machines -- duplicated rather
+    than imported across modules (this project's existing convention
+    for small local helpers, e.g. venues.py/users.py's own separate
+    _known_venue_names / _venues), not shared, so this module has no
+    import-time dependency on backend/api/orders.py."""
+    rows = db.execute(
+        select(VenueMapping.machine_name).where(func.lower(VenueMapping.venue_provider) == venue_provider.strip().lower())
+    ).scalars().all()
+    return list(rows)
+
+
+def build_vendor_report(db: Session, start: str, end: str, venue_provider: str) -> VendorSalesReport:
+    """Sales-only report for one venue partner, scoped to their own
+    venue's machine(s) via VenueMapping -- resolved fresh here (not
+    passed in) so it always reflects the current mapping at render
+    time, same reasoning as build_report()'s own equipment_id lookup.
+    A venue with zero mapped machines (see services/venue_machine_sync.py
+    for why that can happen) simply gets an all-zero report, not an
+    error -- consistent with every other "no data" case in this app."""
+    device_apps_lower = {m.lower() for m in _venue_machines(db, venue_provider)}
+
+    all_rows = db.execute(
+        select(OrderSummary).where(OrderSummary.date >= start, OrderSummary.date <= end)
+    ).scalars().all()
+    order_rows = [r for r in all_rows if r.device_app.lower() in device_apps_lower]
+
+    overall = order_rollup(order_rows, group_by=())
+    total_orders = overall[0].number_of_orders if overall else 0
+
+    orders_by_month: dict[str, list[OrderSummary]] = {}
+    orders_by_date: dict[str, list[OrderSummary]] = {}
+    for row in order_rows:
+        orders_by_month.setdefault(_month_key(row.date), []).append(row)
+        orders_by_date.setdefault(row.date, []).append(row)
+
+    monthly: list[VendorMonthlyRow] = []
+    for month in _months_between(start, end):
+        month_rollup = order_rollup(orders_by_month.get(month, []), group_by=())
+        monthly.append(VendorMonthlyRow(month=month, orders=month_rollup[0].number_of_orders if month_rollup else 0))
+
+    daily: list[VendorDailyRow] = []
+    for day in _dates_between(start, end):
+        day_rollup = order_rollup(orders_by_date.get(day, []), group_by=())
+        daily.append(VendorDailyRow(date=day, orders=day_rollup[0].number_of_orders if day_rollup else 0))
+
+    return VendorSalesReport(
+        start=start, end=end, venue=venue_provider, total_orders=total_orders, monthly=monthly, daily=daily,
     )

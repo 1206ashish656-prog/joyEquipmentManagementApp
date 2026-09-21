@@ -1,0 +1,54 @@
+{# The vendor sales-report body -- included by vendor_report_pdf.html,
+   rendered only from services/report_pdf.py's render_vendor_report_pdf()
+   (services/report_job_worker.py's background loop). Expects `report`
+   (services/management_report.py's VendorSalesReport) in context --
+   deliberately a different, minimal object from the admin
+   ManagementReport: no revenue/cost/profit/venue-comparison/downtime
+   field exists on it at all, so this template has nothing to
+   accidentally leak. #}
+<h1>Sales Report</h1>
+<table class="kv">
+  <tr><td>Venue</td><td>{{ report.venue }}</td></tr>
+  <tr><td>Period</td><td>{{ report.start }} to {{ report.end }}</td></tr>
+  <tr><td>Generated</td><td>{{ generated_at | ist }}</td></tr>
+</table>
+
+<section class="counts" style="grid-template-columns: 1fr;">
+  <div class="count-tile"><div class="n">{{ report.total_orders }}</div><div class="label">Glasses Sold</div></div>
+</section>
+
+<section>
+  <h2>Monthly Breakdown</h2>
+  <table class="equipment-table">
+    <thead><tr><th>Month</th><th>Glasses Sold</th></tr></thead>
+    <tbody>
+      {% for m in report.monthly %}
+      <tr>
+        <td>{{ m.month }}</td>
+        <td>{{ m.orders }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="2">No data in this period.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+{% if include_datewise_sales %}
+<section>
+  <h2>Date-wise Sales</h2>
+  <table class="equipment-table">
+    <thead><tr><th>Date</th><th>Glasses Sold</th></tr></thead>
+    <tbody>
+      {% for d in report.daily %}
+      <tr>
+        <td>{{ d.date }}</td>
+        <td>{{ d.orders }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="2">No data in this period.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
