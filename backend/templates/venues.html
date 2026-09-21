@@ -6,7 +6,7 @@
 <p class="callout">Active venues with a monthly rent set here appear as candidates on Cost Management's "Recurring Costs" section — one Rent entry gets generated per venue, per month, with 18% GST added on top of the monthly rent below.</p>
 
 <table class="equipment-table">
-  <thead><tr><th>Name</th><th>Monthly Rent (excl. GST)</th><th>Total incl. 18% GST</th><th>Active</th><th></th></tr></thead>
+  <thead><tr><th>Name</th><th>Monthly Rent (excl. GST)</th><th>Total incl. 18% GST</th><th>Active</th><th>Mapped Machine(s)</th><th></th></tr></thead>
   <tbody>
     {% for v in venues %}
     <tr>
@@ -14,13 +14,21 @@
       <td>{% if v.monthly_rent is not none %}₹{{ "%.2f"|format(v.monthly_rent) }}{% else %}— not set —{% endif %}</td>
       <td>{% if v.monthly_rent is not none %}₹{{ "%.2f"|format(v.monthly_rent * gst_multiplier) }}{% else %}—{% endif %}</td>
       <td>{{ "Yes" if v.active else "No" }}</td>
+      <td>
+        {% if mapped_machines_by_venue.get(v.name) %}
+        {{ mapped_machines_by_venue[v.name]|join(", ") }}
+        {% else %}
+        <span class="badge badge-warning">⚠ No machine mapped</span>
+        {% endif %}
+      </td>
       <td><a href="/venues/{{ v.id }}/edit">Edit</a></td>
     </tr>
     {% else %}
-    <tr><td colspan="5">No venues added yet.</td></tr>
+    <tr><td colspan="6">No venues added yet.</td></tr>
     {% endfor %}
   </tbody>
 </table>
+<p class="callout">"Mapped Machine(s)" is auto-filled when a venue's name exactly matches a machine's name (e.g. a venue named "Navi" auto-maps to the machine "Navi"). A venue whose real machine has a different name (e.g. "PNR Felicity" ↔ machine "PNR") needs a manual mapping instead — run <code>python -m db.seed_venue_mapping --set "MachineName=VenueName"</code>.</p>
 
 <section>
   <h2>Add Venue</h2>

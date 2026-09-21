@@ -443,6 +443,33 @@ selectable immediately; a venue_partner assigned to one with no machine
 mapped yet still gets the existing "No machine is currently mapped to
 your venue" callout on Order Summary rather than a silent blank page.
 
+**Auto-sync a Venue to a same-named machine (2026-09-22, per explicit
+request: "sync the venues available on venues database automatically
+maps to same machine")** — the fix above made a venue *selectable*
+immediately, but the underlying `VenueMapping` row (what Order Summary
+actually reads) still had to be created by hand via
+`db.seed_venue_mapping`, which is exactly what a follow-up real report
+hit: a venue partner assigned to "Navi" still saw "no machine mapped."
+New `services/venue_machine_sync.py`: whenever there is **exactly one**
+`Equipment` row whose name matches a venue's name case-insensitively,
+and that machine isn't already mapped to some other venue, a
+`VenueMapping` row is created automatically — no CLI step needed for
+the common case of a venue named after its one machine (increasingly
+true as machines get renamed to their location on the target app
+itself, e.g. "Navi"). Deliberately conservative: zero or multiple
+name matches are left alone (never guessed), and an already-mapped
+machine is never silently reassigned — a venue like "PNR Felicity"
+(machine "PNR", a different string) still needs the manual
+`db.seed_venue_mapping --set "PNR=PNR Felicity"` path, same as before.
+Wired in three places: `GET /venues` runs it for every venue on the
+page (**self-healing** — an existing gap like "Navi" fixes itself the
+next time an admin just opens the page, no backfill command needed),
+and both create/edit-venue routes run it immediately for instant
+feedback. `/venues`' table gained a **"Mapped Machine(s)"** column
+showing the real `VenueMapping` state (or a "⚠ No machine mapped"
+badge) directly, instead of that relationship being invisible outside
+a database query.
+
 Existing deployments upgrading from before this feature need a manual
 schema patch (this project has no Alembic yet — see Phase 6 in
 `docs/NEXT_SESSION_PROMPT.md`): `ALTER TABLE users ADD COLUMN

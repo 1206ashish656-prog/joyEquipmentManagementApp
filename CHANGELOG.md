@@ -9,6 +9,19 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Auto-sync a Venue to a same-named machine** (2026-09-22), per
+explicit request. New `services/venue_machine_sync.py` auto-creates a
+`VenueMapping` row whenever a venue's name exactly matches exactly one
+`Equipment` name (e.g. venue "Navi" -> machine "Navi") — no more manual
+`db.seed_venue_mapping` step for the common case. `GET /venues` runs
+this for every venue on the page load (self-healing — an existing gap
+fixes itself next time the page opens), and create/edit-venue also run
+it inline. `/venues` gained a "Mapped Machine(s)" column so the
+previously-invisible mapping state is visible directly on the page.
+Never guesses: zero/multiple name matches, or a machine already mapped
+elsewhere, are left untouched — a differently-named venue/machine pair
+(e.g. "PNR Felicity" / "PNR") still needs the manual command.
+
 **Fix: venues added at `/venues` missing from the Add/Edit User venue
 dropdown** (2026-09-22) — real reported bug. The dropdown
 (`backend/api/users.py::_venues()`) only ever read `VenueMapping`
