@@ -14,17 +14,23 @@
 {% endif %}
 
 <section class="status-panel">
-  <form method="get" action="/orders/summary" class="order-filter-form">
+  <form method="get" action="/orders/summary" class="order-filter-form" id="order-filter-form">
     <div class="filter-group">
       <label>Period
-        <select name="period">
-          {% for p in ["daily", "weekly", "monthly", "ytd"] %}
-          <option value="{{ p }}" {% if p == period %}selected{% endif %}>{{ p|capitalize }}</option>
+        <select name="period" id="order-filter-period-select">
+          {% for p in periods %}
+          <option value="{{ p }}" {% if p == period %}selected{% endif %}>{{ "Custom range" if p == "custom" else p|capitalize }}</option>
           {% endfor %}
         </select>
       </label>
-      <label>As of
+      <label id="order-filter-as-of-field" {% if period == "custom" %}style="display:none;"{% endif %}>As of
         <input type="date" name="as_of" value="{{ as_of }}">
+      </label>
+      <label id="order-filter-start-field" {% if period != "custom" %}style="display:none;"{% endif %}>Start
+        <input type="date" name="start" value="{{ start }}">
+      </label>
+      <label id="order-filter-end-field" {% if period != "custom" %}style="display:none;"{% endif %}>End
+        <input type="date" name="end" value="{{ end }}">
       </label>
     </div>
     <div class="filter-group">
@@ -35,6 +41,21 @@
     </div>
     <button type="submit">Apply</button>
   </form>
+  <script>
+    (function () {
+      var periodSelect = document.getElementById("order-filter-period-select");
+      var asOfField = document.getElementById("order-filter-as-of-field");
+      var startField = document.getElementById("order-filter-start-field");
+      var endField = document.getElementById("order-filter-end-field");
+      function syncPeriod() {
+        var custom = periodSelect.value === "custom";
+        asOfField.style.display = custom ? "none" : "flex";
+        startField.style.display = custom ? "flex" : "none";
+        endField.style.display = custom ? "flex" : "none";
+      }
+      periodSelect.addEventListener("change", syncPeriod);
+    })();
+  </script>
   <table class="kv" style="margin-top:10px;">
     {% if user.role == "venue_partner" %}
     <tr><td>Venue</td><td>{{ venue_provider or "— not assigned —" }}{% if venue_machines %} ({{ venue_machines|join(", ") }}){% endif %}</td></tr>
@@ -119,7 +140,7 @@
     <div class="filter-group">
       <label>Period
         <select name="period" id="vendor-report-period-select">
-          {% for p in report_periods %}
+          {% for p in periods %}
           <option value="{{ p }}">{{ "Custom range" if p == "custom" else p|capitalize }}</option>
           {% endfor %}
         </select>

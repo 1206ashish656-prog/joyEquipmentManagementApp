@@ -172,6 +172,65 @@ def test_orders_summary_weekly_period_includes_multiple_days(client):
     assert "30" in resp.text
 
 
+def test_orders_summary_custom_range_uses_exact_start_and_end(client):
+    test_client, SessionLocal = client
+    _seed_user(SessionLocal)
+    _seed_order_summary(SessionLocal, "2026-08-05", "NEXUS", "120.00", "UPI", n=7)   # just inside the range
+    _seed_order_summary(SessionLocal, "2026-08-01", "NEXUS", "120.00", "UPI", n=99)  # before the range -- excluded
+    _seed_order_summary(SessionLocal, "2026-08-20", "NEXUS", "120.00", "UPI", n=99)  # after the range -- excluded
+    _login(test_client)
+
+    resp = test_client.get("/orders/summary?period=custom&start=2026-08-04&end=2026-08-10")
+    assert resp.status_code == 200
+    assert "2026-08-04" in resp.text
+    assert "2026-08-10" in resp.text
+    assert "7" in resp.text
+    assert "99" not in resp.text
+
+
+def test_orders_summary_custom_range_option_present_in_dropdown(client):
+    test_client, SessionLocal = client
+    _seed_user(SessionLocal)
+    _login(test_client)
+
+    resp = test_client.get("/orders/summary")
+    assert resp.status_code == 200
+    assert "Custom range" in resp.text
+    assert 'id="order-filter-start-field"' in resp.text
+    assert 'id="order-filter-end-field"' in resp.text
+
+
+def test_orders_summary_custom_range_malformed_falls_back_to_as_of(client):
+    """Same "uncertainty never becomes a crash" rule period_range()
+    already documents -- a missing/invalid start or end must not 500,
+    it falls back to a single day."""
+    test_client, SessionLocal = client
+    _seed_user(SessionLocal)
+    _login(test_client)
+
+    resp = test_client.get("/orders/summary?period=custom&as_of=2026-08-15")
+    assert resp.status_code == 200
+    assert "2026-08-15" in resp.text
+
+
+def test_venue_partner_can_use_custom_range_scoped_to_their_venue(client):
+    test_client, SessionLocal = client
+    with SessionLocal() as session:
+        from db.models import VenueMapping
+        session.add(VenueMapping(machine_name="NEXUS", venue_provider="Forum Kormangala"))
+        session.add(User(
+            name="Venue", email="venue@example.com", role="venue_partner", venue_provider="Forum Kormangala",
+            active=True, password_hash=hash_password("pw123456"),
+        ))
+        session.commit()
+    _seed_order_summary(SessionLocal, "2026-08-05", "NEXUS", "120.00", "UPI", n=7)
+    _login(test_client, "venue@example.com", "pw123456")
+
+    resp = test_client.get("/orders/summary?period=custom&start=2026-08-04&end=2026-08-10")
+    assert resp.status_code == 200
+    assert "7" in resp.text
+
+
 def test_orders_summary_chart_data_embedded_as_json(client):
     test_client, SessionLocal = client
     _seed_user(SessionLocal)

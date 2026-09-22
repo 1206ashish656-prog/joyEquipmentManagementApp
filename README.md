@@ -394,7 +394,27 @@ ALTER TABLE report_job ADD COLUMN venue_provider VARCHAR(255);
 ```
 A fresh install gets this for free via `create_all()`.
 
-### Reporting timezone: IST, not the target's UTC+8
+**Custom start/end date range for the on-screen view too (2026-09-22)**
+— the "Download a Sales Report" form above already had a "Custom
+range" option with real Start/End date fields; the on-screen Order
+Summary filter (top of `/orders/summary`, shared by admin and vendor)
+only had Daily/Weekly/Monthly/YTD plus a single "As of" anchor date —
+no way to actually pick an arbitrary date range for the *view* itself,
+even though the underlying route already accepted `period=custom&
+start=…&end=…` via `backend/period_utils.py`'s existing `period_range()`
+(it's the same function used everywhere else — Cost Management,
+both report forms). Purely a template/UI gap, not a backend one: the
+period `<select>` now uses the full period list (was hardcoded to
+just 4 of the 5 values) and gained Start/End date inputs, shown only
+when "Custom range" is selected — same show/hide toggle idiom already
+used by the report forms, with its own distinct element IDs
+(`order-filter-*`) so it can't collide with the vendor-report form's
+identical pattern on the same page. Unlike the report forms (which
+always start fresh on "Monthly"), this one reflects whatever period is
+*already* being viewed on page load via server-rendered
+`display:none`, not a JS-driven initial sync — so reloading a
+custom-range URL directly shows the right fields immediately, no flash
+of the wrong ones.
 
 Per explicit request (2026-08-24): every day boundary this app reports
 — `order_date` on each order, every stored `OrderSummary`/

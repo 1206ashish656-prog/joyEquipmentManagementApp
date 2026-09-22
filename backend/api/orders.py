@@ -203,7 +203,9 @@ def orders_summary(
             "venue_machines": venue_machines,
             "aggregate_chart_json": json.dumps(aggregate_chart_data, cls=_DecimalEncoder),
             "machine_chart_json": json.dumps(machine_chart_data, cls=_DecimalEncoder) if machine_chart_data else None,
-            "report_periods": PERIODS,
+            # Shared by both the on-screen filter form and the vendor
+            # report-download form -- one context key, not two.
+            "periods": PERIODS,
             "today": date_cls.today().isoformat(),
             "vendor_report_jobs": vendor_report_jobs,
             "vendor_report_in_progress": vendor_report_in_progress,

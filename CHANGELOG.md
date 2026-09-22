@@ -9,6 +9,17 @@ living, more granular version of "pending work."
 
 ## [Unreleased] — since 3.0.0
 
+**Custom date range for the on-screen Order Summary view** (2026-09-22),
+per explicit request. The "Download a Sales Report" form already had
+a real Start/End date picker for "Custom range"; the on-screen filter
+above it (shared by admin and vendor) only offered Daily/Weekly/
+Monthly/YTD with a single anchor date — the backend route already
+accepted `period=custom&start=&end=` (same `period_range()` used
+everywhere else), so this was a template-only gap. Period `<select>`
+now includes "Custom range" with Start/End fields shown via the same
+toggle idiom as the report forms, distinct element IDs to avoid
+clashing with the vendor-report form on the same page.
+
 **Vendor-downloadable sales report** (2026-09-22), per explicit
 request. Venue partners can now generate/download their own PDF sales
 report from `/orders/summary`, reusing the Senior Management Report's
