@@ -2,6 +2,12 @@
 Unit tests for services/reconciliation.py's pure matching logic --
 no DB, no PayU network call, just OrderPaymentRecord + PayUTransaction
 objects in and a ReconciliationReport out.
+
+Matching key is order_code <-> PayUTransaction.txnid (corrected
+2026-10-20 -- see services/reconciliation.py's module docstring for how
+this was confirmed against a real production PayU account; out_trade_no
+is NOT the match key despite its name, so these fixtures deliberately
+give it an unrelated value to make sure nothing accidentally matches on it).
 """
 from __future__ import annotations
 
@@ -20,8 +26,8 @@ from services.reconciliation import (
 
 
 def _order(
-    order_id="1", order_code="ORD1", device_app="NEXUS", order_date="2026-08-29",
-    order_money="120.00", pay_type="UPI", payment_status="Have paid", out_trade_no="TXN1",
+    order_id="1", order_code="TXN1", device_app="NEXUS", order_date="2026-08-29",
+    order_money="120.00", pay_type="UPI", payment_status="Have paid", out_trade_no="UNRELATED_PAYU_ID",
 ):
     return OrderPaymentRecord(
         order_id=order_id, order_code=order_code, device_app=device_app, order_date=order_date,
@@ -49,7 +55,7 @@ def test_amount_mismatch_flagged():
 
 
 def test_paid_order_missing_from_payu_flagged():
-    report = build_reconciliation([_order(payment_status="Have paid", out_trade_no="TXN1")], [], "2026-08-01", "2026-08-31")
+    report = build_reconciliation([_order(payment_status="Have paid", order_code="TXN1")], [], "2026-08-01", "2026-08-31")
     assert report.missing_in_payu_count == 1
     assert report.rows[0].match_status == MISSING_IN_PAYU
 
@@ -57,7 +63,7 @@ def test_paid_order_missing_from_payu_flagged():
 def test_unpaid_order_missing_from_payu_is_not_flagged():
     """A genuinely abandoned/failed checkout with no payment attempt on
     either side is not a reconciliation problem."""
-    report = build_reconciliation([_order(payment_status="Non-payment", out_trade_no="")], [], "2026-08-01", "2026-08-31")
+    report = build_reconciliation([_order(payment_status="Non-payment", order_code="")], [], "2026-08-01", "2026-08-31")
     assert report.rows == []
     assert not report.has_problems
 
@@ -66,7 +72,7 @@ def test_successful_payu_transaction_missing_on_machine_flagged():
     report = build_reconciliation([], [_payu_txn(txnid="ORPHAN", status="success")], "2026-08-01", "2026-08-31")
     assert report.missing_on_machine_count == 1
     assert report.rows[0].match_status == MISSING_ON_MACHINE
-    assert report.rows[0].out_trade_no == "ORPHAN"
+    assert report.rows[0].match_key == "ORPHAN"
 
 
 def test_failed_payu_transaction_with_no_order_not_flagged():
@@ -82,26 +88,40 @@ def test_non_upi_order_excluded_entirely():
     as a false "missing" row even if PayU coincidentally has no
     matching txnid (which it never would)."""
     report = build_reconciliation(
-        [_order(pay_type="Self-check repair", payment_status="Have paid", out_trade_no="")],
+        [_order(pay_type="Self-check repair", payment_status="Have paid", order_code="")],
         [], "2026-08-01", "2026-08-31",
     )
     assert report.rows == []
 
 
+def test_out_trade_no_is_not_the_match_key():
+    """Regression test for the 2026-10-20 fix: an order whose out_trade_no
+    happens to equal a PayU txnid must NOT match on that basis -- only
+    order_code does."""
+    order = _order(order_code="REAL_CODE", out_trade_no="TXN1", payment_status="Have paid")
+    report = build_reconciliation([order], [_payu_txn(txnid="TXN1")], "2026-08-01", "2026-08-31")
+    # No match on order_code "REAL_CODE" vs txnid "TXN1" -- and since the
+    # order is paid, it surfaces as Missing in PayU, and the PayU
+    # transaction surfaces separately as Missing on Machine Server.
+    assert report.missing_in_payu_count == 1
+    assert report.missing_on_machine_count == 1
+    assert report.matched_count == 0
+
+
 def test_matched_transaction_not_also_flagged_as_missing_on_machine():
     """A transaction that matched an order must not ALSO show up in the
     missing-on-machine pass."""
-    report = build_reconciliation([_order(out_trade_no="TXN1")], [_payu_txn(txnid="TXN1")], "2026-08-01", "2026-08-31")
+    report = build_reconciliation([_order(order_code="TXN1")], [_payu_txn(txnid="TXN1")], "2026-08-01", "2026-08-31")
     assert len(report.rows) == 1
     assert report.rows[0].match_status == MATCHED
 
 
 def test_multiple_orders_mixed_outcomes():
     orders = [
-        _order(order_id="1", out_trade_no="A", order_money="100.00"),  # matches
-        _order(order_id="2", out_trade_no="B", order_money="200.00"),  # mismatch
-        _order(order_id="3", out_trade_no="C", payment_status="Have paid"),  # missing in payu
-        _order(order_id="4", pay_type="Self-check repair", payment_status="Have paid", out_trade_no=""),  # excluded
+        _order(order_id="1", order_code="A", order_money="100.00"),  # matches
+        _order(order_id="2", order_code="B", order_money="200.00"),  # mismatch
+        _order(order_id="3", order_code="C", payment_status="Have paid"),  # missing in payu
+        _order(order_id="4", pay_type="Self-check repair", payment_status="Have paid", order_code=""),  # excluded
     ]
     payu_txns = [
         _payu_txn(txnid="A", amount="100.00"),

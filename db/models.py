@@ -408,15 +408,20 @@ class OrderPaymentRecord(Base):
     (not instead of) the existing OrderSummary aggregation -- see
     orders/store.py's save_order_payment_records().
 
-    out_trade_no is the reconciliation key: the merchant-supplied
-    reference sent to the target's PayU-shaped payment gateway
-    (confirmed live 2026-08-30 -- the target's own per-order "clients"
-    object exposes upi_key/upi_url* fields whose endpoint path matches
-    PayU's own /merchant/postservice API), and per explicit confirmation
-    from the account owner, the same "external order id" PayU's own
-    transaction records reference alongside PayU's own internal id.
-    Unique on order_id (the target's own numeric order id) so re-running
-    a backfill for an already-recorded date never duplicates rows.
+    out_trade_no is the merchant-supplied reference sent to the target's
+    PayU-shaped payment gateway (confirmed live 2026-08-30 -- the
+    target's own per-order "clients" object exposes upi_key/upi_url*
+    fields whose endpoint path matches PayU's own /merchant/postservice
+    API). It is NOT the reconciliation key, despite that original
+    assumption: confirmed live against a real production PayU MID
+    (2026-10-20, see ../payu-transactions-experiment), out_trade_no
+    actually matches PayU's own *internal* transaction id
+    (PayUTransaction.mihpayid) -- 721/721 real UPI orders matched that
+    way. The actual reconciliation key is order_code <->
+    PayUTransaction.txnid (also 721/721), which is what
+    services/reconciliation.py matches on. Unique on order_id (the
+    target's own numeric order id) so re-running a backfill for an
+    already-recorded date never duplicates rows.
     """
     __tablename__ = "order_payment_record"
 
@@ -428,10 +433,142 @@ class OrderPaymentRecord(Base):
     order_money: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     pay_type: Mapped[str] = mapped_column(String(32))  # e.g. "UPI" -- only UPI orders are PayU-eligible
     payment_status: Mapped[str] = mapped_column(String(64), default="")  # pay_state_text, e.g. "Have paid"
+    # order_status/delivery_status (order_state_text/delivery_state_text) --
+    # added alongside the refund-check feature (backend/api/refund_check.py):
+    # the raw order fetch (orders/mapping.py's OrderRecord) always carried
+    # these, but until now orders/store.py's save_order_payment_records()
+    # dropped them on the floor since only payment_status was needed for
+    # PayU reconciliation. Needed here to detect "paid but order_status
+    # isn't Completed and/or delivery_status isn't Success" -- the same
+    # two fields orders/selectors.py's SUMMARY_FILTER checks, inverted.
+    order_status: Mapped[str] = mapped_column(String(64), default="")  # order_state_text, e.g. "Completed"
+    delivery_status: Mapped[str] = mapped_column(String(64), default="")  # delivery_state_text, e.g. "Success"
+    # goods_name/cup_num -- added alongside order_status/delivery_status,
+    # same reason: already fetched into OrderRecord but previously
+    # dropped. Shown on the refund-check page (backend/api/refund_check.py)
+    # since they're part of the target's own Order Information view an
+    # admin is already used to reading (Product Name / Number columns).
+    goods_name: Mapped[str] = mapped_column(String(255), default="")
+    cup_num: Mapped[int] = mapped_column(Integer, default=0)
     out_trade_no: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     created_at_target: Mapped[datetime] = mapped_column(DateTime(timezone=True))  # order's own createtime
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # order's own paytime
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class RefundCheck(Base):
+    """Independent tracking table for the refund-check feature
+    (backend/api/refund_check.py, services/refund_check.py) -- deliberately
+    NOT a column on OrderPaymentRecord, since that table is freely
+    deleted-and-reinserted per date by orders/store.py on every refresh
+    (see save_order_payment_records()) and would lose an admin's refund
+    flag the next time the same date's data is re-synced. One row per
+    order_id that an admin has acted on; an order with no row here simply
+    hasn't been actioned yet. Matched to OrderPaymentRecord.order_id by
+    value, not a DB foreign key, for that same reason.
+
+    refund_requested/requested_by/requested_at: the admin-facing "intent"
+    flag -- set the moment an admin clicks Refund, before anything is
+    known about whether PayU accepted it. Kept distinct from the
+    PayU-side fields below, which record what actually happened.
+
+    PayU refund-trigger fields (added 2026-10-20, real `cancel_refund_transaction`
+    calls -- see services/payu_client.py's initiate_refund(). Proven
+    against TEST/sandbox credentials first, then activated against
+    PRODUCTION credentials for real orders the same day, per explicit
+    instruction -- test/sandbox credentials (Settings.payu_test_merchant_key/salt)
+    are now used only for a dormant TEST_DEVICE_APP verification order,
+    see backend/api/refund_check.py's _payu_settings_for()):
+      - refund_api_requested_at: set ONLY once a definitive response
+        (success or a clean PayU-side rejection) comes back from PayU --
+        this is the idempotency lock (services/refund_check.py's
+        decide_refund_action()). A transport failure before any PayU
+        response does NOT set this, so a genuine network hiccup can be
+        retried; once PayU has actually processed a request, it can't.
+      - payu_refund_token/payu_refund_status/payu_refund_checked_at:
+        the latest known refund state, write-through cached from the
+        live getAllRefundsFromTxnIds lookup (backend/api/refund_check.py's
+        GET handler refreshes this on every page view) -- self-healing,
+        no separate poller needed. Also how a refund made DIRECTLY on
+        PayU's dashboard (outside this app entirely -- confirmed this
+        has already happened for two real orders) gets reflected here
+        without ever calling initiate_refund() for it.
+      - refund_api_error/refund_mode: audit trail of our own trigger
+        attempt specifically (the message PayU gave for OUR call, and
+        which PayU account was actually used -- "production" for a real
+        order, "test" only for a TEST_DEVICE_APP dummy one).
+      - refund_trace: a human-readable, timestamped, append-only log of
+        every PayU API call this order's refund process has gone
+        through (added 2026-10-20, per explicit request: "show which
+        endpoints hit and the refund status") -- one line per step, both
+        the POST handler's idempotency-check/trigger calls and the GET
+        handler's periodic status-refresh calls. Purely for admin
+        visibility; nothing reads this back as state.
+    """
+    __tablename__ = "refund_check"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)  # OrderPaymentRecord.order_id
+    refund_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    requested_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    refund_api_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    refund_api_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refund_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)  # "production" (real orders) | "test" (TEST_DEVICE_APP dummy orders only)
+    refund_trace: Mapped[str | None] = mapped_column(Text, nullable=True)  # append-only step log, see docstring above
+    payu_refund_token: Mapped[str | None] = mapped_column(String(64), nullable=True)  # what PayU's dashboard calls "Refund ID"
+    payu_refund_status: Mapped[str | None] = mapped_column(String(32), nullable=True)  # e.g. "success", "queued", "in_progress"
+    payu_refund_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    requested_by: Mapped["User | None"] = relationship("User")
+
+
+class UnrecordedPaymentCheck(Base):
+    """Independent tracking table (added 2026-10-20, per explicit
+    request) for the INVERSE problem RefundCheck tracks: an order where
+    PayU shows the payment as genuinely collected (status "success"/
+    "captured"), but the machine's own payment_status says it wasn't
+    (not "Have paid") -- a customer paid and the machine may not know
+    it. Matched via OrderPaymentRecord.order_code == PayUTransaction.txnid
+    (services/reconciliation.py's own match key), NOT out_trade_no/
+    mihpayid like RefundCheck -- see services/refund_check.py's
+    is_unrecorded_payment() module docstring.
+
+    Column-for-column identical to RefundCheck by design ("functionality
+    for these orders should be similar to orders that received payment
+    as per machine server but failed delivery status", per explicit
+    request) -- same independent-table rationale (OrderPaymentRecord is
+    deleted-and-reinserted per date on every refresh), same refund-
+    trigger audit fields, same append-only step trace. Kept as a
+    separate table (not a shared one with RefundCheck) because these are
+    a genuinely different category of problem order for review purposes,
+    and an order could in principle need both forms of review over its
+    lifetime without the two rows colliding.
+    """
+    __tablename__ = "unrecorded_payment_check"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    order_id: Mapped[str] = mapped_column(String(32), unique=True, index=True)  # OrderPaymentRecord.order_id
+    refund_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    requested_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    refund_api_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    refund_api_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refund_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    refund_trace: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payu_refund_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    payu_refund_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    payu_refund_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    requested_by: Mapped["User | None"] = relationship("User")
 
 
 # --- Venue mapping (access control — see User.role/venue_provider above) ---

@@ -737,11 +737,25 @@ code: every raw order row from the target application embeds a
 endpoint) — the target's own backend proxies a PayU-compatible gateway.
 `out_trade_no` (consistently populated; `trade_no` was empty on every
 order checked, including a successful one, so it's not usable) is the
-merchant-supplied reference sent to that gateway — confirmed with the
-account owner that this is the same "external order id" PayU's own
-transaction records reference alongside PayU's own internal id
-(`mihpayid`). `services/reconciliation.py` matches on
-`OrderPaymentRecord.out_trade_no == PayUTransaction.txnid`.
+merchant-supplied reference sent to that gateway.
+
+**Match key corrected 2026-10-20**, once real PayU credentials were
+available to actually test against (see
+`../payu-transactions-experiment`, a standalone read-only experiment
+folder that first proved the Merchant API key/salt/hash worked end to
+end against the live production account). The original assumption
+above — that `out_trade_no` is the same "external order id" PayU's own
+`txnid` references — was never actually verified against a live PayU
+account and turned out to be wrong: matching `out_trade_no` against
+`txnid` produced **zero** matches across 721 real UPI orders against
+743 real PayU transactions for the same 3-day window. `out_trade_no`
+instead matches PayU's own **internal** transaction id (what PayU's API
+calls `id`, surfaced as `PayUTransaction.mihpayid` — `services/payu_client.py`'s
+`_map_transaction` was also fixed to read it from there, since it was
+previously looking for `mihpayid`/`mihpayupid` keys that this API never
+actually sends). The real correlation key turned out to be
+`OrderPaymentRecord.order_code <-> PayUTransaction.txnid`, which matched
+721/721. `services/reconciliation.py` now matches on that pair.
 
 Only `pay_type == "UPI"` orders are PayU-eligible — the only other
 value ever seen, `"Self-check repair"`, is a free/maintenance category
@@ -779,6 +793,426 @@ a setup message instead of failing confusingly. The PayU call only
 fires when an admin explicitly clicks "Run Reconciliation" (`?run=1`)
 — never on page load — same "nothing calls a paid external API
 silently" rule every other admin-triggered action in this app follows.
+
+## Refund Check (2026-10-20, admin-only, `/refund-check`)
+
+Surfaces machine orders where payment was completed but the order
+itself didn't fully succeed — `order_status != "Completed"` and/or
+`delivery_status != "Success"` (`services/refund_check.py`; deliberately
+the inverse of `orders/selectors.py`'s `SUMMARY_FILTER`, which treats
+exactly that combination as "qualifying") — for today and the previous
+2 IST calendar days, with a **Refund** button per row.
+
+**First iteration only, per explicit request**: the button records
+intent — who flagged the order and when — in a new, independent
+`refund_check` table. It does **not** call PayU or any vendor refund API
+yet; that's deferred to a later iteration, behind this same button.
+
+**`OrderPaymentRecord` gained `order_status`/`delivery_status` columns.**
+The raw per-order fetch (`orders/mapping.py`'s `OrderRecord`) always
+carried both, but `orders/store.py`'s `save_order_payment_records()`
+previously only persisted `payment_status` (all that PayU reconciliation
+needed). Populated going forward by the same `orders/realtime_worker.py`
+(today, continuously) / `orders/backfill.py` (historical days) paths
+already in place — no new polling mechanism.
+
+**New, independent `refund_check` table** — not a column on
+`OrderPaymentRecord`, since that table is deleted-and-reinserted per
+date on every refresh (see `save_order_payment_records()`) and would
+otherwise lose an admin's refund flag the next time that date's data
+re-syncs. Matched to `OrderPaymentRecord.order_id` by value, not a DB
+foreign key, for the same reason.
+
+**PayU cross-reference columns (PayU ID / PayU Status / Bank Ref No)**,
+added same day per explicit request: each row is matched to PayU's own
+transaction record via `OrderPaymentRecord.out_trade_no == PayUTransaction.mihpayid`
+— this is a *different* correlation than `/reconciliation`'s own
+`order_code == txnid` match (see that section above); confirmed by the
+account owner that the vendor's own Order Information dashboard links
+out to PayU via out_trade_no, which it calls the "external order id".
+Fetched automatically on page load (unlike `/reconciliation`'s explicit
+`?run=1` button) since it's core to deciding whether to refund; a PayU
+hiccup shows an inline error without taking the rest of the page down.
+
+**Duplicate-mihpayid bug, found and fixed same day**: PayU's
+`get_Transaction_Details` sometimes returns more than one row for the
+same mihpayid for a UPI payment — observed live, the bank's UTR
+(`bank_ref_no`) gets attached asynchronously sometime after the initial
+"captured" status, and which duplicate row PayU lists first isn't
+stable between calls. A naive `{t.mihpayid: t for t in txns}` dict
+("last one wins") intermittently dropped a UTR that genuinely existed
+on one of the duplicates — reproduced live: the same request returned
+populated and empty `Bank Ref No` on different calls for identical
+data. `services/refund_check.py`'s `index_payu_transactions_by_mihpayid()`
+now always prefers whichever duplicate has `bank_ref_no` populated,
+making the result deterministic.
+
+**Refund ID / Refund Status columns, verified from PayU (not inferred)**:
+added same day, per explicit request that this be "verified from PayU
+dashboard only" — i.e. never inferred from our own `refund_check`
+table's "an admin clicked Refund" intent flag, which says nothing about
+whether a refund actually happened. `services/payu_client.py` gained
+`get_refunds_for_transaction()`, PayU's `getAllRefundsFromTxnIds`
+command (`docs.payu.in/reference/get_all_refunds_from_transaction_ids_api`,
+`hash = sha512(key|command|var1|salt)`, one call per transaction — PayU
+doesn't offer a batch form of this one). `"No Refunds Found for the
+transaction."` (status 1, no `Refund Details` key) is PayU's normal
+response for an unrefunded transaction, not an error.
+
+**Two bugs corrected after a real refunded transaction was reported as
+showing nothing** (same day): a transaction confirmed "Refunded" on
+PayU's own dashboard, screenshotted by the account owner, came back
+`"No Refunds Found"` when queried the way this feature first shipped.
+Direct live testing against that exact transaction found:
+1. **`var1` is the merchant's own `txnid`** (`PayUTransaction.txnid`,
+   `== OrderPaymentRecord.order_code`), **not PayU's internal id**
+   (`mihpayid`/`out_trade_no`) — querying by mihpayid returned "No
+   Refunds Found" for a transaction that genuinely had a refund;
+   querying by txnid found it correctly. This is the *opposite*
+   convention from `get_Transaction_Details`'s own `"id"` field (see
+   above) and from what this API's docs page's prose seemed to
+   describe — yet another case of a generic docs page not matching this
+   account's live behavior, so the lookup is now keyed by `order_code`,
+   not `out_trade_no`.
+2. **The dashboard's "Refund ID" is the response's `RefundToken` field**
+   (e.g. `31386182688_506445f139`), confirmed by matching the reported
+   transaction's dashboard screenshot against this exact API response
+   for it — **not `RequestID`** (a different PayU id present on the same
+   row, used for `check_action_status` polling, not shown anywhere on
+   the dashboard as "Refund ID"). `PayURefund.refund_token` is what's
+   displayed; `request_id` is kept on the dataclass but not shown.
+
+Looked up only for orders that are actual failed-transaction rows (not
+every order in the lookback window — would be a wasted PayU call per
+order otherwise), concurrently via `asyncio.gather`, so the added
+latency is one round-trip, not N sequential ones. A single row's lookup
+failing doesn't take the page down — it's logged and that row's refund
+columns just stay empty, same best-effort posture as the rest of this
+page's PayU calls. When PayU has more than one refund record for a
+transaction, `_pick_refund()` prefers the most conclusive status
+(`success` > `in_progress`/`queued` > `failure`).
+
+### Refund-trigger pipeline (verified TEST-mode 2026-10-20, ACTIVATED against production the same day)
+
+The "Refund" button calls PayU's real `cancel_refund_transaction` --
+first verified end-to-end against a **TEST/sandbox PayU account**
+(`PAYU_TEST_MERCHANT_KEY`/`PAYU_TEST_MERCHANT_SALT` in `.env`), then
+**activated against the real production PayU account
+(`PAYU_MERCHANT_KEY`/`SALT`) the same day**, per explicit instruction
+("Activate the functionality in the current setup keeping the
+constraint on refund authorization intact", clarified on being asked
+which account to "route the actual refund call at the production PayU
+account (real refunds, real money)"). `backend/api/refund_check.py`'s
+`REFUND_TRIGGER_ENABLED` is now `True` -- clicking "Refund" on a real
+order's row genuinely sends `cancel_refund_transaction` to PayU's
+production account and moves real money. `_handle_refund_trigger()`
+resolves which account per order the same way the read-only lookup
+already did (`_payu_settings_for()`): production for any real order,
+test/sandbox credentials only for a dormant `TEST_DEVICE_APP`-tagged
+dummy order (kept specifically so that verification path can never
+leak into a real order's production credentials, or vice versa).
+Flipping `REFUND_TRIGGER_ENABLED` back to `False` is still a one-line
+change that reverts to the fully read-only, zero-PayU-calls-per-POST
+posture described below -- unchanged from before activation.
+
+**"Keeping the constraint on refund authorization intact" -- what
+stayed exactly the same through this activation**: a refund is only
+ever sent from inside a `POST /refund-check/.../refund` request,
+gated by `require_admin` (an authenticated admin, not any other role)
+and only ever reachable client-side via the button's `confirm()`
+dialog (now worded "Trigger a REAL PayU refund of Rs ___... This will
+move real money and cannot be undone through this app" --
+`backend/templates/refund_check.html`). There is no scheduled job,
+worker cycle, or GET-triggered path anywhere in this codebase that can
+call `initiate_refund()`: the combined worker / `orders/realtime_worker.py`
+only ever write `OrderPaymentRecord` rows and never touch
+`RefundCheck`/`UnrecordedPaymentCheck`, and `GET /refund-check` itself
+only ever reads/display-caches PayU's existing refund status, never
+triggers one. Idempotency (`decide_refund_action()`) is also unchanged
+by this activation -- a repeat click or an order PayU already shows
+refunded is still a no-op/backfill, never a second real-money refund.
+
+While it's `False` (e.g. if the kill-switch is ever flipped back), the
+button renders disabled (greyed out, no form, no `confirm()`) and
+`POST /refund-check/{id}/refund` makes **zero** PayU calls of any kind
+-- not even the pre-trigger idempotency lookup; it exits before
+touching the order at all.
+
+The read-only PayU cross-reference (PayU ID/Status/Bank Ref/Refund
+ID/Status columns) was never gated by this flag and always reflected
+the real production PayU account for real orders already (it always
+did -- `Settings.payu_merchant_key/salt` was never test-mode for this
+part) -- per explicit request to keep showing "realtime data... with
+their refund status" regardless of the trigger's own state.
+
+**Realtime window**: juice dispensing takes ~120s, so an order younger
+than that can show `delivery_status="Failure"` as a still-in-progress
+state, not a genuine one. `backend/api/refund_check.py`'s
+`MIN_ORDER_AGE_SECONDS = 150` excludes anything younger, on top of the
+existing 3-day lookback (additive, not a replacement).
+`orders/realtime_worker.py`'s `DEFAULT_INTERVAL_SECONDS` was tightened
+from 300s to 150s to match — without that, an order could sit
+un-synced for minutes before even reaching `OrderPaymentRecord`, making
+the 150s gate theoretical rather than real.
+
+**`cancel_refund_transaction`'s hash formula** was undocumented by
+PayU — confirmed live against the TEST MID (provided test credentials:
+key `sudBMF`, MID `9218467`) the same way every other undocumented
+command in this file was: `sha512(key|command|var1|salt)`, **`var1`
+(mihpayid) only** — `var2` (merchant token) and `var3` (amount) are
+sent as request params but NOT part of the hash, the same shape as
+`get_Transaction_Details`/`getAllRefundsFromTxnIds`. Verified against a
+real unrefunded sandbox transaction (`TEST087B9B9ACFF34BC8`/mihpayid
+`20000078392`): the trigger call returned
+`{"status": 1, "msg": "Refund Request Queued", "request_id": "..."}`,
+and the refund subsequently appeared via `getAllRefundsFromTxnIds`.
+
+**Idempotency** (`services/refund_check.py`'s `decide_refund_action()`,
+per explicit request — "if refund request is already sent... ignores
+in the backend"): `RefundCheck.refund_api_requested_at` is the lock,
+set only once a *definitive* PayU response (success or a clean
+rejection) comes back — a transport failure before any response leaves
+it unset, so a genuine network hiccup can still be retried. If PayU
+already shows a refund for an order the admin never triggered through
+this app (confirmed this has already happened for two real production
+orders, refunded directly on PayU's own dashboard), the POST handler
+backfills that into `refund_check` and locks it, **never** calling
+`initiate_refund()` for it — a real duplicate-refund risk this guards
+against directly.
+
+**UPI-only** (`services/refund_check.py`'s `is_failed_transaction()`):
+restricted to `pay_type == "UPI"`, per explicit request ("failed
+delivery despite receiving payment through upi") — `"Self-check
+repair"` orders never reach PayU, so there's nothing to refund
+regardless of status.
+
+**Confirmation gesture**: the Refund button is a plain POST form with a
+JS `confirm()` before it submits (`refund_check.html`, same minimal
+vanilla-JS convention as `users.html`'s existing inline script) — this
+is the "allow admin to authenticate it" gesture; there's no separate
+re-auth step beyond the admin already being logged in.
+
+**Step-by-step trace, visible on the page** (2026-10-20, per explicit
+request to "see steps in the refund process... show which endpoints
+hit and the refund status"): `RefundCheck.refund_trace` is an
+append-only, timestamped log (`services/refund_check.py`'s
+`append_trace()`) of every PayU call made for an order's refund --
+both the POST handler's pre-trigger idempotency check and the actual
+trigger call, and the GET handler's periodic status-refresh (only
+logged when something's actually new, so repeat page views don't spam
+it). Rendered as a collapsible "Steps" `<details>` block under each
+row's Operation cell -- expand it to see exactly what was called, with
+what parameters, and PayU's exact response.
+
+**Dummy test-mode orders (used for verification, since removed)**:
+`backend/api/refund_check.py`'s `TEST_DEVICE_APP = "TEST-REFUND-PIPELINE"`
+marks an `OrderPaymentRecord` seeded directly into Postgres (not
+through the real vendor, which this app doesn't control and won't
+inject fake data into) against a real PayU TEST/sandbox transaction.
+Every PayU call this page makes (`_payu_settings_for()`) resolves to
+the TEST account for any such row instead of production, so a dummy
+order shows accurate live PayU status/refund data on the same page real
+orders do -- this machinery stays in the code (dormant, zero cost when
+no such rows exist) in case TEST-mode verification is needed again, but
+the three dummy rows used to prove the pipeline this session
+(`TEST087B9B9ACFF34BC8`/`TESTC13261AE690B4D18`/`TESTCLAUDE5B7EB6EA38`,
+full click-through including a live `cancel_refund_transaction` call)
+were deleted once production mode was confirmed working (same command:
+`DELETE FROM order_payment_record WHERE device_app = 'TEST-REFUND-PIPELINE'`).
+
+Migration note for an **existing** deployment (same "no Alembic"
+situation as above): `refund_check` and `unrecorded_payment_check` are
+both brand-new tables, free via `create_all()` with their full column
+set from the start (no partial-then-extended history ever reached a
+real deployment) -- only `order_payment_record`'s four new columns
+need a manual `ALTER TABLE` on a deployment that already has that
+table from the earlier PayU reconciliation feature:
+```sql
+ALTER TABLE order_payment_record ADD COLUMN order_status VARCHAR(64) DEFAULT '';
+ALTER TABLE order_payment_record ADD COLUMN delivery_status VARCHAR(64) DEFAULT '';
+ALTER TABLE order_payment_record ADD COLUMN goods_name VARCHAR(255) DEFAULT '';
+ALTER TABLE order_payment_record ADD COLUMN cup_num INTEGER DEFAULT 0;
+```
+A fresh install (no `order_payment_record` table yet either) gets all
+three tables and every column for free via `create_all()` -- no SQL
+needed at all.
+
+### Unrecorded payments — PayU paid, machine didn't record it (2026-10-20)
+
+The inverse problem, added per explicit request ("the payment status is
+failed but received payment as per payU... maintain the database for
+future review"): a second table on the same `/refund-check` page,
+"Payment Received by PayU but Not by Machine", for orders where PayU's
+own record shows the payment genuinely collected
+(`PayUTransaction.status in {"success", "captured"}`) but the machine's
+own `OrderPaymentRecord.payment_status != "Have paid"` — a customer may
+have paid with nothing dispensed and no trace of success on the
+vendor's side at all. Built with the explicitly-requested "similar
+functionality" to the existing failed-transaction table: same realtime
+window, same refund-trigger kill-switch, same idempotency guarantees,
+same trace log.
+
+**Matched the opposite way round from the first table, deliberately.**
+The first table matches `out_trade_no == mihpayid` (PayU's own id) --
+appropriate there because the order *does* have a recorded payment to
+anchor on. Here, `payment_status` is exactly what's in question, so
+anchoring on a PayU-sourced id would be circular. Instead
+`services/refund_check.py`'s `build_unrecorded_payments()` matches via
+`order_code == txnid` -- the merchant-generated id present on the order
+regardless of payment outcome, the same key `/reconciliation` already
+uses for its own independent cross-check.
+
+**New `UnrecordedPaymentCheck` table**, column-for-column identical to
+`RefundCheck` (own primary key, independently tracks admin
+refund-intent/trigger/trace/idempotency state) -- kept as a genuinely
+separate table rather than a shared one with a type discriminator, so
+the two tables can never cross-contaminate each other's idempotency
+locks or trace logs for what are conceptually different failure modes.
+Brand new table, free via `create_all()` -- no `ALTER TABLE` needed for
+this one.
+
+**Refund-trigger resolves `mihpayid` differently than the first table.**
+`POST /refund-check/{id}/refund` (first table) trusts
+`OrderPaymentRecord.out_trade_no` directly, since that's the whole
+premise there. `POST /refund-check/unrecorded-payment/{id}/refund`
+can't -- `out_trade_no` isn't trustworthy for a row that exists
+*because* the machine's payment bookkeeping for it is already in
+question -- so it instead re-fetches `get_Transaction_Details` scoped to
+the order's own date and resolves `mihpayid` by matching
+`PayUTransaction.txnid == order_code` fresh at trigger time
+(`index_payu_transactions_by_txnid()`), the same lookup the GET handler
+already used to decide the row belongs on this table in the first
+place.
+
+**`PayU amount` column, shown for comparison against the machine's own
+Order Amount** -- surfaced a real `_map_transaction()` bug while
+verifying against the two real matches this found in production
+(orders 324721/323879): PayU's `amount` field was `"0.00"` for both
+(a DBQR/callback-settled-transaction quirk, not specific to this
+feature), while the real collected amount was in `transaction_fee`
+instead (₹120.00/₹135.00, each matching `order_money` exactly once
+this fix landed). Fixed in `services/payu_client.py`'s
+`_map_transaction()` with a fallback:
+`amount=_to_decimal(row.get("amount")) or _to_decimal(row.get("transaction_fee"))`
+-- this also affects `/reconciliation`'s own AMOUNT_MISMATCH detection
+for the same kind of transaction, not just this page.
+
+Verified live against both real matches on the running app: order
+324721 (Navi, ₹120.00, PayU `captured`, bank ref `629304963204`) and
+323879 (Gravity, ₹135.00, PayU `captured`, bank ref `131578565175`),
+both correctly excluded from the *first* table (machine-side
+`payment_status` already says non-payment, so `is_failed_transaction()`
+-- which requires UPI + `"Have paid"` -- correctly doesn't fire) and
+correctly shown only on this new one.
+
+### Search by PayU ID / Bank Ref No (2026-10-20)
+
+One search box (not two separate inputs), shared by both tables on the
+page, matches case-insensitively as a substring against either
+`payu_id` or `payu_bank_ref_no` -- `services/refund_check.py`'s
+`filter_by_payu_search()`. Applied as display-only filtering *after*
+the existing self-healing write-through
+(`backend/api/refund_check.py`'s `_write_through_refund_status()`)
+runs against the full, unfiltered row lists -- an active search must
+never pause status-refresh for a row it happens to hide this request.
+
+### Hide-refunded split + 7-day lookback (2026-10-21)
+
+**"The data displayed looks clumsy"** -- per explicit follow-up request
+once the refund-trigger was live and real orders started accumulating
+a mix of refunded/unrefunded rows in one list: each table is now split
+into two groups instead of one combined, sorted list. Both
+`build_failed_transactions()`/`build_unrecorded_payments()` sort their
+rows by recency only (`services/refund_check.py`'s `_sort_by_recency()`
+-- most-recent-first by `created_at_target`, date *and* time, not just
+the `order_date` string), then `split_by_refund_status()` partitions
+that single list into `(non_refunded, refunded)`. Because the
+partition is stable, each half stays recency-ordered on its own with
+no extra sort needed.
+
+`backend/api/refund_check.py`'s `refund_check_page()` renders
+`non_refunded` directly in the main, always-visible table ("show only
+those orders for which refund is not triggered") and `refunded` inside
+a collapsed `<details>`/`<summary>` section titled "Show N refunded
+orders" ("hide orders that already received refund... allow user to
+unhide refunded transactions") -- the same native, no-JS-required
+collapse/expand convention this page already used for each row's
+"Steps" trace log. Opening it is the "unhide" gesture; the refunded
+rows are still present in the page's HTML either way (just visually
+collapsed), so nothing needs a second round-trip to the server to
+reveal them.
+
+**Search still reaches the hidden half** ("it should be searchable as
+well from the same search box", per explicit request):
+`filter_by_payu_search()` is applied to `non_refunded` and `refunded`
+independently, so a refunded order is still findable by its PayU
+ID/bank ref even while collapsed. When a search actually matches
+something inside the refunded group, the template auto-expands that
+`<details>` (`{% if search %}open{% endif %}`) so a match is never left
+hidden behind an extra click; a search that matches nothing in that
+group leaves it collapsed as normal.
+
+**Lookback window widened from T-2 to T-6** ("store the orders for
+last 1 week (T-6 to T) from today instead of T-2 to T", per explicit
+request): `backend/api/refund_check.py`'s `LOOKBACK_DAYS` is now `7`
+(today + previous 6 days), up from `3`. No other change was needed --
+`OrderPaymentRecord` already accumulates continuously day by day as the
+combined worker runs, so the extra 4 days of history were already
+present in the database; only the page's own query window needed
+widening.
+
+Verified live against the running app: the page correctly showed
+"today and the previous 6 days" for `2026-10-15` to `2026-10-21`, a
+`non_refunded` table with 5 real orders and a collapsed "Show 7
+refunded orders" section with 7 more (verified zero overlap between
+the two id sets), and a search for a known bank ref correctly
+auto-expanded the refunded section to reveal its match.
+
+### Bug found and fixed same day: widening the window broke PayU matching for the most recent days
+
+Reported directly from the live app shortly after the above shipped:
+the "Payment Received by PayU but Not by Machine" table had gone
+completely empty, including the two real orders (324721/323879) known
+to belong there. Root-caused by querying PayU directly for the same
+7-day range this page now requests
+(`services/payu_client.py`'s `get_transaction_details('2026-10-15',
+'2026-10-21')`): PayU's own `get_Transaction_Details` response is
+capped -- it came back with **exactly 1000 rows**, every one of them
+from the *oldest* 4 days in the range (`2026-10-15`-`18`), with the 3
+*most recent* days -- `10-19`, `10-20`, and **today, `10-21`** --
+silently missing entirely, no error returned. That's exactly backwards
+for a page whose whole purpose is surfacing recent failures: any order
+dated in one of those three days could never find its PayU transaction
+match, which is a hard requirement for the unrecorded-payments table
+(`is_unrecorded_payment()`) -- hence it coming back empty. The
+failed-transactions table doesn't require a PayU match to list a row
+(`is_failed_transaction()` only looks at `OrderPaymentRecord`'s own
+fields), so it kept showing orders from those same days, just with
+empty PayU ID/Status/Bank Ref/Refund columns for them -- which is the
+"only last 2 days" symptom actually reported: the *data* for the 3
+most recent days of real candidates was there, but their PayU-sourced
+columns had gone blank.
+
+This bug didn't exist before the 7-day lookback shipped (hours
+earlier, same day) -- the old 3-day window's total transaction volume
+stayed safely under PayU's 1000-row cap, so the single-call fetch
+(`backend/api/refund_check.py`'s `_fetch_payu_transactions()`) never
+hit it.
+
+**Fix**: `_fetch_payu_transactions()` now fetches ONE DAY AT A TIME
+(`_date_range()` enumerates every date in the window) and concatenates
+the results, concurrently via `asyncio.gather` -- the same pattern
+`_fetch_payu_refunds()` already used per-txnid, so widening
+`LOOKBACK_DAYS` further in the future adds no sequential latency.
+Each day's own response volume (observed live: ~150-350 rows/day) stays
+safely under PayU's cap regardless of how many days the window spans.
+
+Verified live after the fix: `/refund-check` now shows order 321981
+(`2026-10-19`) with its PayU ID/Status/Bank Ref columns correctly
+populated (previously all `—`), and the unrecorded-payments table shows
+exactly the 2 expected real orders (324721/323879), both correctly
+inside the collapsed "Show 2 refunded orders" section since both are
+already refunded.
 
 ## Senior Management Report (2026-08-30, admin-only, `/reports/management`)
 
@@ -1170,6 +1604,8 @@ tests/
   test_orders_rollup.py        aggregation math (weighted averages across combined groups)
   test_orders_store.py         DB round-trip, idempotent re-save, quiet-day handling
   test_orders_backend.py       Order Summary tab: auth, period switching, breakdowns
+  test_refund_check.py         failed-transaction filter logic (paid + not Completed/Success)
+  test_refund_check_backend.py /refund-check: auth/RBAC, lookback window, refund-intent recording
   tc_001_target_connection/    numbered live test case: connect, authenticate
                              (reuse-first), extract, report malfunctions
 ```

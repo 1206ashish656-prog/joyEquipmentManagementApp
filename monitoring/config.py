@@ -88,6 +88,20 @@ class Settings:
     payu_merchant_salt: str
     payu_env: str  # "test" | "production" — selects the base URL
 
+    # PayU refund-TRIGGER pipeline (backend/api/refund_check.py's "Refund"
+    # button, services/payu_client.py's initiate_refund()) -- a SEPARATE
+    # key+salt pair, always a test/sandbox PayU account. The trigger
+    # pipeline is ACTIVE against payu_merchant_key/payu_env above
+    # (production) for real orders as of 2026-10-20, per explicit
+    # instruction; these TEST_* credentials are now used only for a
+    # dormant verification path (an order tagged
+    # device_app="TEST-REFUND-PIPELINE") so that path can never reach
+    # production credentials -- see backend/api/refund_check.py's
+    # _payu_settings_for().
+    payu_test_merchant_key: str
+    payu_test_merchant_salt: str
+    payu_test_mid: str  # reference only, not sent in any API call
+
     @property
     def has_credentials(self) -> bool:
         return bool(self.target_username and self.target_password)
@@ -120,6 +134,10 @@ class Settings:
     @property
     def payu_base_url(self) -> str:
         return "https://test.payu.in" if self.payu_env == "test" else "https://info.payu.in"
+
+    @property
+    def payu_test_configured(self) -> bool:
+        return bool(self.payu_test_merchant_key and self.payu_test_merchant_salt)
 
 
 def load_settings() -> Settings:
@@ -159,6 +177,9 @@ def load_settings() -> Settings:
         payu_merchant_key=os.getenv("PAYU_MERCHANT_KEY", "").strip(),
         payu_merchant_salt=os.getenv("PAYU_MERCHANT_SALT", "").strip(),
         payu_env=os.getenv("PAYU_ENV", "production").strip().lower(),
+        payu_test_merchant_key=os.getenv("PAYU_TEST_MERCHANT_KEY", "").strip(),
+        payu_test_merchant_salt=os.getenv("PAYU_TEST_MERCHANT_SALT", "").strip(),
+        payu_test_mid=os.getenv("PAYU_TEST_MID", "").strip(),
     )
 
 

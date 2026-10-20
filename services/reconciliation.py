@@ -1,16 +1,28 @@
 """
-Reconciliation between the machine server's own order records
-(OrderPaymentRecord, db/models.py) and PayU's transaction records
-(services/payu_client.py) for a chosen date range -- "a separate
-endpoint for reconciliation of machine server and payu pgw," per
-explicit request.
+Machine server <-> PayU PGW reconciliation (admin-only, /reconciliation)
+-- a separate endpoint from Cost Management/Order Summary, per explicit
+request. Compares OrderPaymentRecord (individual machine orders,
+db/models.py) against PayU's own transaction records
+(services/payu_client.py) for a chosen date range, via
+services/reconciliation.py's pure matching logic.
 
-Matching key: OrderPaymentRecord.out_trade_no <-> PayUTransaction.txnid.
-Confirmed with the account owner that PayU's own "external order id"
-(what PayU calls txnid) is the exact same reference the machine server
-calls out_trade_no -- see db/models.py's OrderPaymentRecord docstring
-for how that was established (the target's own per-order data exposes
-PayU-shaped integration fields pointing at a PayU-compatible gateway).
+Matching key: OrderPaymentRecord.order_code <-> PayUTransaction.txnid
+(CORRECTED 2026-10-20, confirmed live against a real production PayU
+MID -- see ../payu-transactions-experiment, a standalone read-only
+experiment folder outside this repo that first proved the Merchant API
+credentials/hash worked end-to-end). The original assumption here was
+OrderPaymentRecord.out_trade_no <-> txnid (see db/models.py's
+OrderPaymentRecord docstring before this date), based on the target's
+raw order data exposing PayU-shaped integration fields under that name
+-- plausible, but never actually verified against a live PayU account,
+since PAYU_MERCHANT_KEY/SALT were never configured until now. Once they
+were, matching on out_trade_no produced ZERO matches across 721 real
+UPI orders against 743 real PayU transactions for the same 3-day
+window, while order_code matched all 721 -- and out_trade_no instead
+matches PayU's own internal transaction id (what PayU calls "id" in
+this API's response, surfaced as PayUTransaction.mihpayid). So
+out_trade_no is a real, useful PayU correlation field, just not the
+txnid one.
 
 Only pay_type == "UPI" orders are PayU-eligible on the machine side --
 the only other value ever seen, "Self-check repair", is a free/
@@ -42,7 +54,7 @@ MISSING_ON_MACHINE = "Missing on Machine Server"
 @dataclass
 class ReconciliationRow:
     match_status: str
-    out_trade_no: str
+    match_key: str  # OrderPaymentRecord.order_code == PayUTransaction.txnid
     order_code: str | None = None
     device_app: str | None = None
     order_date: str | None = None
@@ -87,7 +99,7 @@ def build_reconciliation(
     end: str,
 ) -> ReconciliationReport:
     payu_by_txnid = {t.txnid: t for t in payu_transactions if t.txnid}
-    all_out_trade_nos = {o.out_trade_no for o in machine_orders if o.out_trade_no}
+    all_order_codes = {o.order_code for o in machine_orders if o.order_code}
 
     rows: list[ReconciliationRow] = []
 
@@ -95,13 +107,13 @@ def build_reconciliation(
         if order.pay_type != UPI_PAY_TYPE:
             continue
 
-        key = order.out_trade_no or ""
+        key = order.order_code or ""
         payu_txn = payu_by_txnid.get(key) if key else None
 
         if payu_txn is not None:
             status = MATCHED if payu_txn.amount == order.order_money else AMOUNT_MISMATCH
             rows.append(ReconciliationRow(
-                match_status=status, out_trade_no=key, order_code=order.order_code,
+                match_status=status, match_key=key, order_code=order.order_code,
                 device_app=order.device_app, order_date=order.order_date,
                 machine_amount=order.order_money, machine_payment_status=order.payment_status,
                 payu_amount=payu_txn.amount, payu_status=payu_txn.status, payu_mihpayid=payu_txn.mihpayid,
@@ -111,7 +123,7 @@ def build_reconciliation(
             # record for this reference at all -- the most serious kind
             # of mismatch, worth surfacing even without a key.
             rows.append(ReconciliationRow(
-                match_status=MISSING_IN_PAYU, out_trade_no=key, order_code=order.order_code,
+                match_status=MISSING_IN_PAYU, match_key=key, order_code=order.order_code,
                 device_app=order.device_app, order_date=order.order_date,
                 machine_amount=order.order_money, machine_payment_status=order.payment_status,
             ))
@@ -122,9 +134,9 @@ def build_reconciliation(
     for txn in payu_transactions:
         if txn.status not in PAYU_SUCCESS_STATUSES:
             continue  # a failed/pending PayU attempt with no matching order isn't a reconciliation problem
-        if txn.txnid and txn.txnid not in all_out_trade_nos:
+        if txn.txnid and txn.txnid not in all_order_codes:
             rows.append(ReconciliationRow(
-                match_status=MISSING_ON_MACHINE, out_trade_no=txn.txnid,
+                match_status=MISSING_ON_MACHINE, match_key=txn.txnid,
                 payu_amount=txn.amount, payu_status=txn.status, payu_mihpayid=txn.mihpayid,
             ))
 

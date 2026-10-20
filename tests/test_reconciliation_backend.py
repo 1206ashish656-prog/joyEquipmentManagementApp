@@ -60,12 +60,17 @@ def _login(client, email, password="pw123456"):
     return client.post("/login", data={"email": email, "password": password}, follow_redirects=False)
 
 
-def _add_order(SessionLocal, order_id, out_trade_no, amount="120.00", payment_status="Have paid", pay_type="UPI", order_date="2026-08-29"):
+def _add_order(SessionLocal, order_id, order_code, amount="120.00", payment_status="Have paid", pay_type="UPI", order_date="2026-08-29"):
+    """`order_code` is the actual PayU reconciliation match key (see
+    services/reconciliation.py's module docstring for why this isn't
+    out_trade_no, despite that being the original assumption) -- given an
+    unrelated out_trade_no value here so a test can't accidentally pass
+    by matching on the wrong field."""
     with SessionLocal() as session:
         session.add(OrderPaymentRecord(
-            order_id=order_id, order_code=f"ORD{order_id}", device_app="NEXUS", order_date=order_date,
+            order_id=order_id, order_code=order_code, device_app="NEXUS", order_date=order_date,
             order_money=Decimal(amount), pay_type=pay_type, payment_status=payment_status,
-            out_trade_no=out_trade_no, created_at_target=datetime.now(timezone.utc),
+            out_trade_no=f"UNRELATED_PAYU_ID_{order_id}", created_at_target=datetime.now(timezone.utc),
         ))
         session.commit()
 

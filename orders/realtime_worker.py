@@ -54,7 +54,17 @@ from .summary import compute_daily_groups
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("orders.realtime_worker")
 
-DEFAULT_INTERVAL_SECONDS = 300  # 5 minutes — frequent enough to feel "live" on a dashboard refresh, not so frequent it hammers the target for a slowly-accumulating count.
+# Changed from 300s to 150s (2026-10-20, per explicit request) to serve
+# backend/api/refund_check.py's realtime refund pipeline: that page only
+# ever acts on an order once it's at least 150s old (juice dispensing
+# takes ~120s, so a younger order's "Failure" delivery status may still
+# just be mid-dispense, not a genuine failure -- see is_failed_transaction()'s
+# caller for the age gate). A 300s refresh cadence would mean an order
+# could sit un-synced for up to 5 minutes before even reaching
+# OrderPaymentRecord, making that 150s threshold theoretical rather than
+# real. Still shared with Order Summary's "today" tab, which only
+# benefits from a tighter refresh.
+DEFAULT_INTERVAL_SECONDS = 150
 
 
 def today_ist(now: datetime | None = None) -> str:

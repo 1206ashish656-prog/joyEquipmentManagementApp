@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+{% block title %}Refund Check — Equipment Monitor{% endblock %}
+{% block content %}
+
+{% macro operation_cell(row, action_url) %}
+  {% if row.payu_refund_id %}
+  <span class="badge badge-healthy">Refunded (PayU confirmed)</span>
+  {% elif row.refund_api_requested_at and row.refund_api_error %}
+  <span class="badge badge-malfunction" title="{{ row.refund_api_error }}">Refund Failed</span>
+  {% elif row.refund_api_requested_at %}
+  <span class="badge badge-warning">Refund Requested — pending PayU confirmation{% if row.refund_requested_by %} ({{ row.refund_requested_by }}){% endif %}</span>
+  {% elif not refund_trigger_enabled %}
+  <button type="button" class="linklike" disabled title="Refund triggering is currently disabled — pending authorization for a future iteration.">Refund</button>
+  {% else %}
+  <form method="post" action="{{ action_url }}" style="display:inline;"
+        onsubmit="return confirm('Trigger a REAL PayU refund of Rs {{ '%.2f'|format(row.order_money) }} for order {{ row.order_id }}? This will move real money and cannot be undone through this app.');">
+    <button type="submit" class="linklike">Refund</button>
+  </form>
+  {% endif %}
+  {% if row.refund_trace %}
+  <details style="margin-top:4px;">
+    <summary style="cursor:pointer; font-size:0.85em; color:var(--muted,#888);">Steps</summary>
+    <pre style="white-space:pre-wrap; font-size:0.8em; max-width:28em; margin:4px 0 0;">{{ row.refund_trace }}</pre>
+  </details>
+  {% endif %}
+{% endmacro %}
+
+{% macro failed_transaction_row(row) %}
+<tr>
+  <td>{{ row.order_id }}</td>
+  <td>{{ row.order_date }}</td>
+  <td>{{ row.device_app }}</td>
+  <td>{{ row.order_code or "—" }}</td>
+  <td><span class="badge badge-healthy">{{ row.payment_status }}</span></td>
+  <td><span class="badge badge-malfunction">{{ row.delivery_status or "—" }}</span></td>
+  <td>
+    {% if row.order_status == "Completed" %}<span class="badge badge-healthy">{{ row.order_status }}</span>
+    {% else %}<span class="badge badge-malfunction">{{ row.order_status or "—" }}</span>
+    {% endif %}
+  </td>
+  <td>₹{{ "%.2f"|format(row.order_money) }}</td>
+  <td>{{ row.pay_type }}</td>
+  <td>{{ row.goods_name or "—" }}</td>
+  <td>{{ row.cup_num }}</td>
+  <td>{{ row.payu_id or "—" }}</td>
+  <td>
+    {% if row.payu_payment_status in ("success", "captured") %}<span class="badge badge-healthy">{{ row.payu_payment_status }}</span>
+    {% elif row.payu_payment_status %}<span class="badge badge-malfunction">{{ row.payu_payment_status }}</span>
+    {% else %}—
+    {% endif %}
+  </td>
+  <td>{{ row.payu_bank_ref_no or "—" }}</td>
+  <td>{{ row.payu_refund_id or "—" }}</td>
+  <td>
+    {% if row.payu_refund_status == "success" %}<span class="badge badge-healthy">{{ row.payu_refund_status }}</span>
+    {% elif row.payu_refund_status %}<span class="badge badge-warning">{{ row.payu_refund_status }}</span>
+    {% else %}—
+    {% endif %}
+  </td>
+  <td>{{ operation_cell(row, "/refund-check/" ~ row.order_id ~ "/refund") }}</td>
+</tr>
+{% endmacro %}
+
+{% macro unrecorded_payment_row(row) %}
+<tr>
+  <td>{{ row.order_id }}</td>
+  <td>{{ row.order_date }}</td>
+  <td>{{ row.device_app }}</td>
+  <td>{{ row.order_code or "—" }}</td>
+  <td><span class="badge badge-malfunction">{{ row.payment_status or "—" }}</span></td>
+  <td>
+    {% if row.order_status == "Completed" %}<span class="badge badge-healthy">{{ row.order_status }}</span>
+    {% else %}<span class="badge badge-malfunction">{{ row.order_status or "—" }}</span>
+    {% endif %}
+  </td>
+  <td><span class="badge {{ 'badge-healthy' if row.delivery_status == 'Success' else 'badge-malfunction' }}">{{ row.delivery_status or "—" }}</span></td>
+  <td>₹{{ "%.2f"|format(row.order_money) }}</td>
+  <td>{{ row.pay_type }}</td>
+  <td>{{ row.goods_name or "—" }}</td>
+  <td>{{ row.cup_num }}</td>
+  <td>{{ row.payu_id or "—" }}</td>
+  <td>
+    {% if row.payu_payment_status in ("success", "captured") %}<span class="badge badge-healthy">{{ row.payu_payment_status }}</span>
+    {% elif row.payu_payment_status %}<span class="badge badge-malfunction">{{ row.payu_payment_status }}</span>
+    {% else %}—
+    {% endif %}
+  </td>
+  <td>{% if row.payu_amount is not none %}₹{{ "%.2f"|format(row.payu_amount) }}{% else %}—{% endif %}</td>
+  <td>{{ row.payu_bank_ref_no or "—" }}</td>
+  <td>{{ row.payu_refund_id or "—" }}</td>
+  <td>
+    {% if row.payu_refund_status == "success" %}<span class="badge badge-healthy">{{ row.payu_refund_status }}</span>
+    {% elif row.payu_refund_status %}<span class="badge badge-warning">{{ row.payu_refund_status }}</span>
+    {% else %}—
+    {% endif %}
+  </td>
+  <td>{{ operation_cell(row, "/refund-check/unrecorded-payment/" ~ row.order_id ~ "/refund") }}</td>
+</tr>
+{% endmacro %}
+
+<h1>Failed Transactions — Refund Check</h1>
+<p class="callout">
+  Orders where payment was completed on the machine but the order itself didn't fully succeed
+  (order status isn't "Completed" and/or delivery status isn't "Success"), for {{ start }} to {{ end }}
+  (today and the previous 6 days, IST).
+</p>
+{% if refund_trigger_enabled %}
+<p class="callout">
+  <strong>Note:</strong> Clicking "Refund" calls PayU's real refund API against the
+  <strong>production</strong> PayU account — this moves real money and cannot be reversed through this
+  app. Each click is confirmed before it sends, and a refund is never sent twice for the same order (if
+  PayU already shows a refund for an order — including one made directly on PayU's own dashboard — the
+  button is disabled instead of sending another). "Refund ID (PayU)" and "Refund Status (PayU)" further
+  down are looked up directly from PayU's own records (<code>getAllRefundsFromTxnIds</code>), independent
+  of anything this app recorded itself. Orders already refunded are hidden below by default — use
+  "Show refunded orders" to unhide them.
+</p>
+{% else %}
+<p class="callout">
+  <strong>Note:</strong> This page now shows <strong>live production PayU data</strong> (payment status, bank
+  reference, and any existing refund). Refund <em>triggering</em> is currently disabled — the button below is
+  inactive until explicitly activated in a future iteration. "Refund ID (PayU)" and "Refund Status (PayU)" are
+  looked up directly from PayU's own production records (<code>getAllRefundsFromTxnIds</code>), so an order
+  already refunded (including directly on PayU's own dashboard) still shows as refunded here. Orders already
+  refunded are hidden below by default — use "Show refunded orders" to unhide them.
+</p>
+{% endif %}
+
+{% if not payu_configured %}
+<div class="callout">PayU credentials aren't configured yet, so the PayU ID/Status columns below will be empty. Add <code>PAYU_MERCHANT_KEY</code> and <code>PAYU_MERCHANT_SALT</code> to <code>.env</code> (from your <a href="https://payu.in/business/transactions" target="_blank" rel="noopener">PayU dashboard</a>) to enable them.</div>
+{% elif payu_error %}
+<p class="error">{{ payu_error }}</p>
+{% endif %}
+
+<section class="status-panel">
+  <form method="get" action="/refund-check" class="order-filter-form">
+    <div class="filter-group">
+      <label>Search by PayU ID or Bank Ref No<input type="text" name="search" value="{{ search }}" placeholder="e.g. 31397825858 or 629304963204"></label>
+    </div>
+    <button type="submit">Search</button>
+    {% if search %}<a href="/refund-check" class="linklike">Clear</a>{% endif %}
+  </form>
+  <p class="callout" style="margin-top:0.5em; margin-bottom:0;">Search also looks inside the hidden "refunded" sections below and unhides matches automatically.</p>
+</section>
+
+{% if not rows %}
+<p class="callout">{% if search %}No non-refunded failed transactions match "{{ search }}" for this period.{% else %}No failed transactions found for this period.{% endif %}</p>
+{% else %}
+<table class="equipment-table">
+  <thead>
+    <tr>
+      <th>ID</th><th>Date</th><th>Device App</th><th>Order Code</th>
+      <th>Payment Status</th><th>Delivery Status</th><th>Order Status</th>
+      <th>Order Amount</th><th>Pay Type</th><th>Product Name</th><th>Number</th>
+      <th>PayU ID</th><th>PayU Status</th><th>Bank Ref No</th><th>Refund ID (PayU)</th><th>Refund Status (PayU)</th><th>Operation</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}{{ failed_transaction_row(row) }}{% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if refunded_rows %}
+<details style="margin-top:0.75em;" {% if search %}open{% endif %}>
+  <summary style="cursor:pointer;">Show {{ refunded_rows|length }} refunded order{{ "s" if refunded_rows|length != 1 else "" }}</summary>
+  <table class="equipment-table" style="margin-top:0.5em;">
+    <thead>
+      <tr>
+        <th>ID</th><th>Date</th><th>Device App</th><th>Order Code</th>
+        <th>Payment Status</th><th>Delivery Status</th><th>Order Status</th>
+        <th>Order Amount</th><th>Pay Type</th><th>Product Name</th><th>Number</th>
+        <th>PayU ID</th><th>PayU Status</th><th>Bank Ref No</th><th>Refund ID (PayU)</th><th>Refund Status (PayU)</th><th>Operation</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in refunded_rows %}{{ failed_transaction_row(row) }}{% endfor %}
+    </tbody>
+  </table>
+</details>
+{% endif %}
+
+<h1 style="margin-top:2.5em;">Payment Received by PayU but Not by Machine</h1>
+<p class="callout">
+  The inverse problem: PayU shows the payment as genuinely collected, but the machine's own record of the order
+  says it wasn't (payment status isn't "Have paid") — a customer may have paid with nothing dispensed. Matched via
+  <code>order_code</code> / PayU <code>txnid</code> (the same key <a href="/reconciliation">Reconciliation</a> uses),
+  for {{ start }} to {{ end }}. "PayU Amount" is what PayU itself shows as collected, for comparison against the
+  machine's own Order Amount. Orders already refunded are hidden below by default — use "Show refunded orders" to
+  unhide them.
+</p>
+
+{% if not unrecorded_rows %}
+<p class="callout">{% if search %}No non-refunded PayU-paid-but-machine-unpaid orders match "{{ search }}" for this period.{% else %}No PayU-paid-but-machine-unpaid orders found for this period.{% endif %}</p>
+{% else %}
+<table class="equipment-table">
+  <thead>
+    <tr>
+      <th>ID</th><th>Date</th><th>Device App</th><th>Order Code</th>
+      <th>Payment Status</th><th>Order Status</th><th>Delivery Status</th>
+      <th>Order Amount</th><th>Pay Type</th><th>Product Name</th><th>Number</th>
+      <th>PayU ID</th><th>PayU Status</th><th>PayU Amount</th><th>Bank Ref No</th>
+      <th>Refund ID (PayU)</th><th>Refund Status (PayU)</th><th>Operation</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in unrecorded_rows %}{{ unrecorded_payment_row(row) }}{% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+{% if refunded_unrecorded_rows %}
+<details style="margin-top:0.75em;" {% if search %}open{% endif %}>
+  <summary style="cursor:pointer;">Show {{ refunded_unrecorded_rows|length }} refunded order{{ "s" if refunded_unrecorded_rows|length != 1 else "" }}</summary>
+  <table class="equipment-table" style="margin-top:0.5em;">
+    <thead>
+      <tr>
+        <th>ID</th><th>Date</th><th>Device App</th><th>Order Code</th>
+        <th>Payment Status</th><th>Order Status</th><th>Delivery Status</th>
+        <th>Order Amount</th><th>Pay Type</th><th>Product Name</th><th>Number</th>
+        <th>PayU ID</th><th>PayU Status</th><th>PayU Amount</th><th>Bank Ref No</th>
+        <th>Refund ID (PayU)</th><th>Refund Status (PayU)</th><th>Operation</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in refunded_unrecorded_rows %}{{ unrecorded_payment_row(row) }}{% endfor %}
+    </tbody>
+  </table>
+</details>
+{% endif %}
+{% endblock %}
