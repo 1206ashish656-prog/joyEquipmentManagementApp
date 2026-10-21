@@ -112,6 +112,24 @@ request, a search still matches against BOTH groups
 (filter_by_payu_search() is applied to each independently), so a
 refunded order is still findable by its PayU ID/bank ref even while
 collapsed.
+
+Unknown-status bug, found and fixed in production 2026-10-21:
+is_failed_transaction() now requires order_status AND delivery_status
+to both be non-empty before considering an order at all. Without this
+guard, any OrderPaymentRecord row written before those two columns
+existed (they default to "" -- see db/models.py, and the production
+migration that added them via ALTER TABLE ... DEFAULT '' left every
+pre-existing row with that default rather than a real value) got
+wrongly flagged: "" != COMPLETED_ORDER_STATUS evaluates True, so an
+empty/unknown status looked identical to a genuine failure. Confirmed
+live: this flooded the Failed Transactions table with historical
+"Have paid" orders that have nothing actually wrong with them -- the
+real fix for the underlying data is re-syncing those dates (orders.backfill
+--force, which calls the current save_order_payment_records() and
+populates the real values), but the code-level guard is the one that
+actually matters going forward -- it protects against this exact class
+of gap for ANY column added the same no-Alembic way in the future, not
+just this one.
 """
 from __future__ import annotations
 
@@ -168,7 +186,20 @@ def is_failed_transaction(order: OrderPaymentRecord) -> bool:
     request: "failed delivery despite receiving payment through upi") --
     the only other pay_type ever seen, "Self-check repair", is a free/
     maintenance category that never reaches PayU, so it can never have
-    anything to refund regardless of its order/delivery status."""
+    anything to refund regardless of its order/delivery status.
+
+    Requires order_status/delivery_status to actually be populated
+    (bug found live 2026-10-21): these two columns default to "" for
+    any OrderPaymentRecord row written before they existed (e.g. a
+    historical row from an ALTER TABLE-added-column backfill, or any
+    future column added the same way) -- "" != COMPLETED_ORDER_STATUS
+    is True, so without this guard every such row was wrongly flagged
+    as a failed transaction (confirmed live: flooded the table with
+    historical "Have paid" orders that have nothing wrong with them,
+    the machine's own status for them is just unknown to this app).
+    Unknown status must mean "don't know," never "definitely failed.\""""
+    if not order.order_status or not order.delivery_status:
+        return False
     return (
         order.pay_type == UPI_PAY_TYPE
         and order.payment_status == PAID_STATUS

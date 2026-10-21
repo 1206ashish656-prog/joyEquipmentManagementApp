@@ -72,6 +72,33 @@ def test_non_upi_order_never_flagged_even_if_paid_and_failed():
     assert not is_failed_transaction(_order(pay_type="Self-check repair", delivery_status="Failure"))
 
 
+def test_unknown_order_and_delivery_status_never_flagged():
+    """Bug found live 2026-10-21: order_status/delivery_status default to
+    "" for any row written before these columns existed (e.g. a
+    historical row from an ALTER TABLE ADD COLUMN backfill) -- "" !=
+    "Completed" is True, so without a guard every such row was wrongly
+    flagged as a failed transaction, even though the machine's real
+    status for it is simply unknown to this app, not actually failed."""
+    assert not is_failed_transaction(_order(order_status="", delivery_status=""))
+
+
+def test_unknown_order_status_alone_never_flagged():
+    """Even a partially-known status (only one of the two fields empty)
+    isn't trustworthy enough to flag -- both are needed to determine the
+    Completed+Success state reliably."""
+    assert not is_failed_transaction(_order(order_status="", delivery_status="Failure"))
+
+
+def test_unknown_delivery_status_alone_never_flagged():
+    assert not is_failed_transaction(_order(order_status="Cancel", delivery_status=""))
+
+
+def test_genuinely_known_failed_status_still_flagged():
+    """The guard must not swallow real failures -- only genuinely empty
+    status fields are excluded."""
+    assert is_failed_transaction(_order(order_status="Completed", delivery_status="Failure"))
+
+
 def test_build_failed_transactions_excludes_successful_orders():
     rows = build_failed_transactions([_order()], {})
     assert rows == []
