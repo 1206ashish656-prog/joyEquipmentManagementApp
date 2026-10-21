@@ -119,8 +119,8 @@ def test_shows_only_paid_but_failed_orders_within_lookback(client):
     _login(test_client, "admin@example.com")
 
     _add_order(SessionLocal, "1", "2026-08-29", delivery_status="Failure")  # in range, failed -- shown
-    _add_order(SessionLocal, "2", "2026-08-23", order_status="Cancel")  # in range (7-day lookback, T-6), failed -- shown
-    _add_order(SessionLocal, "3", "2026-08-22", delivery_status="Failure")  # out of range (T-7) -- hidden
+    _add_order(SessionLocal, "2", "2026-08-26", order_status="Cancel")  # in range (4-day lookback, T-3), failed -- shown
+    _add_order(SessionLocal, "3", "2026-08-25", delivery_status="Failure")  # out of range (T-4) -- hidden
     _add_order(SessionLocal, "4", "2026-08-29")  # fully successful -- hidden
     _add_order(SessionLocal, "5", "2026-08-29", payment_status="Non-payment", order_status="Cancel")  # never paid -- hidden
     _add_order(SessionLocal, "6", "2026-08-29", delivery_status="Failure", pay_type="Self-check repair")  # non-UPI -- hidden

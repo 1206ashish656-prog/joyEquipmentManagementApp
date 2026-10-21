@@ -100,21 +100,24 @@ auto-expands the refunded section when a search actually matches
 something inside it, so a match is never hidden behind an extra click.
 
 Lookback window (2026-10-21, per explicit request: "store the orders
-for last 1 week (T-6 to T) from today instead of T-2 to T"):
-LOOKBACK_DAYS is 7 (today + previous 6 days), up from 3.
+for last 1 week (T-6 to T) from today instead of T-2 to T", then
+reduced the same day to "just fetch data for today and previous 3
+days" after the PayU fetch volume at 7 days surfaced issues in
+production): LOOKBACK_DAYS is 4 (today + previous 3 days, T-3 to T).
 
-PayU fetch bug, fixed same day: widening the window to 7 days exposed a
-real bug in _fetch_payu_transactions() -- PayU's own get_Transaction_Details
-response is capped (confirmed live: a single multi-day call returned
-exactly 1000 rows, all from the OLDEST 4 days, with the 3 most recent
-days -- including today -- silently missing, no error). That directly
-caused the "Payment Received by PayU but Not by Machine" table to come
-back completely empty (its matching requires a PayU transaction match,
-impossible for any order on a day PayU's response dropped). Fixed by
-fetching one day at a time (_date_range()) and concatenating, same
-asyncio.gather concurrency pattern as _fetch_payu_refunds() -- each
-day's response stays safely under the cap regardless of how wide
-LOOKBACK_DAYS is.
+PayU fetch bug, fixed same day the window was widened to 7: PayU's own
+get_Transaction_Details response is capped (confirmed live: a single
+multi-day call returned exactly 1000 rows, all from the OLDEST 4 days,
+with the 3 most recent days -- including today -- silently missing, no
+error). That directly caused the "Payment Received by PayU but Not by
+Machine" table to come back completely empty (its matching requires a
+PayU transaction match, impossible for any order on a day PayU's
+response dropped). Fixed by fetching one day at a time (_date_range())
+and concatenating, same asyncio.gather concurrency pattern as
+_fetch_payu_refunds() -- each day's response stays safely under the
+cap regardless of how wide LOOKBACK_DAYS is. This fix is independent of
+LOOKBACK_DAYS's own value (4 now, was 7) -- it protects against the
+response cap at any window width.
 """
 from __future__ import annotations
 
@@ -152,7 +155,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-LOOKBACK_DAYS = 7  # today + previous 6 days (T-6 to T)
+LOOKBACK_DAYS = 4  # today + previous 3 days (T-3 to T) -- reduced from 7 (2026-10-21, per explicit request), see module docstring
 MIN_ORDER_AGE_SECONDS = 150  # ~120s juice-dispense time + buffer -- see module docstring
 TEST_DEVICE_APP = "TEST-REFUND-PIPELINE"  # marks a dummy order seeded against the real PayU TEST account -- see README
 
